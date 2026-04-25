@@ -205,3 +205,41 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ---------------------------------------------------------------------------
+# torchocr-specific hygiene
+# ---------------------------------------------------------------------------
+
+# Generated artifacts from the demos and CLI (regenerable from source).
+examples/*.jpg
+examples/*.png
+examples/*.pdf
+my_tests/
+outputs/
+runs/
+
+# Local model checkpoints. Pretrained weights ship via torch.hub or a model
+# hub (Hugging Face, S3, ...) — never committed, regardless of size.
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.bin
+
+# ML experiment tracking dirs that any user might create locally.
+wandb/
+mlruns/
+lightning_logs/
+tb_logs/
+
+# Operating-system clutter.
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor/IDE local state.
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
