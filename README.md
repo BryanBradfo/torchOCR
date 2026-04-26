@@ -142,7 +142,7 @@ Exit code 0 means both architectures are wired correctly on your machine.
 
 ## Contributing
 
-Issues and PRs welcome. Each model in `src/torchocr/models/` documents its shape contract in the docstring; please match the existing style (`from torch import Tensor, nn`, Google-style docstrings, `Tensor | None` unions). See `CLAUDE.md` for the project's behavioral guidelines.
+Issues and PRs welcome. Each model in `src/torchocr/models/` documents its shape contract in the docstring; please match the existing style (`from torch import Tensor, nn`, Google-style docstrings, `Tensor | None` unions). See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full coding standards and PR process.
 
 ## License
 
