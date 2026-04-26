@@ -12,6 +12,7 @@ dependencies = [
     "torch",
     "torchvision",
     "pymupdf",
+    "scipy",
 ]
 
 [project.optional-dependencies]
