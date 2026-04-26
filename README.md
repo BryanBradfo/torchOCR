@@ -2,7 +2,7 @@
 
 **A PyTorch-native, end-to-end OCR library — batchable, GPU-first, and free of clunky C++ runtimes.**
 
-[ build · passing ] · [ pypi · pre-release ] · [ python · 3.10+ ] · [ pytorch · 2.0+ ] · [ license · MIT ]
+[![CI](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml/badge.svg)](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml) · [ pypi · pre-release ] · [ python · 3.10+ ] · [ pytorch · 2.0+ ] · [ license · MIT ]
 
 ---
 
