@@ -211,8 +211,13 @@ __marimo__/
 # ---------------------------------------------------------------------------
 
 # Generated artifacts from the demos and CLI (regenerable from source).
-examples/*.jpg
-examples/*.png
+# IMPORTANT: source demo images (examples/chinese_receipt.jpg, examples/english_doc.jpg, etc.)
+# are TRACKED. Only outputs produced by demo_inference.py / test_converted_dbnet.py are ignored.
+examples/*_annotated.jpg
+examples/*_annotated.png
+examples/*_boxes.jpg
+examples/*_boxes.png
+examples/demo_output.*
 examples/*.pdf
 my_tests/
 outputs/
@@ -244,8 +249,14 @@ desktop.ini
 *.swo
 *~
 
-# Upstream Paddle weights
+# Upstream Paddle weights (file extensions and known directory names).
+# Paddle's training-checkpoint directories contain ~200MB of .pdparams/.pdopt
+# blobs that must never enter Git. Belt-and-suspenders: extension rules above
+# catch the files, this rule catches the entire downloaded directory.
 *.tar
 *.pdparams
 *.pdopt
 *.states
+ch_ppocr_*/
+en_ppocr_*/
+multilingual_ppocr_*/
