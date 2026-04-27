@@ -1,121 +1,138 @@
 """End-to-end visual demo for torchocr.
 
-The script generates a synthetic document image, saves it as
-``sample_doc.jpg``, runs it through :class:`OCRPipeline`, and writes
-an annotated visualization to ``demo_output.jpg`` next to this script.
+Loads a real document image from ``examples/`` (Chinese by default,
+since the converted PP-OCR weights ship with strong Chinese coverage),
+runs the OCR pipeline, and writes an annotated visualization next to
+the input.
 
-NOTE: Models are currently randomly initialized. The detected boxes
-and text are noise, but this proves the end-to-end tensor pipeline
-and shape contracts function perfectly.
+Without ``--weights`` the detector and recognizer use random
+initialization; the pipeline composes end-to-end but boxes will be
+noise. With a converted DBNet checkpoint (see
+``scripts/convert_paddle_dbnet.py``) the boxes track real text.
 
 Run from any working directory:
+    # pipeline shape check (random init, demonstrates the API):
     python examples/demo_inference.py
+
+    # with real weights converted from PaddleOCR:
+    python examples/demo_inference.py --weights /tmp/dbnet_resnet18_vd.pth
+
+    # try a different image:
+    python examples/demo_inference.py --image examples/english_doc.jpg
 """
 
+import argparse
 from pathlib import Path
 
+import cv2
+import numpy as np
 import torch
 from torchvision.io import write_jpeg
 from torchvision.utils import draw_bounding_boxes
 
 from torchocr import CTCGreedyDecoder, DBPostProcessor, OCRPipeline
-from torchocr.io import load_image
 from torchocr.models import CRNN, DBNet
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-SAMPLE_PATH = SCRIPT_DIR / "sample_doc.jpg"
-OUTPUT_PATH = SCRIPT_DIR / "demo_output.jpg"
+
+# PaddleOCR detection-side preprocessing.
+_MAX_SIDE = 960
+_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 
-def make_synthetic_document(height: int = 800, width: int = 608) -> torch.Tensor:
-    """Build a (3, H, W) uint8 white image with dark text-line bars.
-
-    H and W must be multiples of 32 to satisfy DBNet's input contract.
-    """
-    if height % 32 or width % 32:
-        raise ValueError(
-            f"Synthetic document dims must be divisible by 32; got {height}x{width}."
-        )
-
-    image = torch.full((3, height, width), 255, dtype=torch.uint8)
-    rng = torch.Generator().manual_seed(0)
-
-    # Title bar across the top.
-    image[:, 64:96, 80 : width - 80] = 30
-
-    # 10 mock paragraph lines with varied left/right margins.
-    line_height = 22
-    margin_top = 144
-    margin_bottom = 80
-    available = height - margin_top - margin_bottom
-    line_count = 10
-    spacing = available // line_count
-    for i in range(line_count):
-        y = margin_top + i * spacing
-        line_width = int(
-            torch.randint(width // 2, width - 100, (1,), generator=rng).item()
-        )
-        x = int(
-            torch.randint(60, max(61, width - line_width - 60), (1,), generator=rng).item()
-        )
-        image[:, y : y + line_height, x : x + line_width] = 50
-    return image
+def preprocess_for_detector(bgr: np.ndarray) -> torch.Tensor:
+    h, w = bgr.shape[:2]
+    scale = _MAX_SIDE / max(h, w)
+    nh = max(int(round(h * scale / 32) * 32), 32)
+    nw = max(int(round(w * scale / 32) * 32), 32)
+    rgb = cv2.cvtColor(cv2.resize(bgr, (nw, nh)), cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    rgb = (rgb - _MEAN) / _STD
+    return torch.from_numpy(rgb.transpose(2, 0, 1))
 
 
 def main() -> None:
-    torch.manual_seed(0)
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument(
+        "--image",
+        type=Path,
+        default=SCRIPT_DIR / "chinese_receipt.jpg",
+        help="Input document image (default: examples/chinese_receipt.jpg).",
+    )
+    parser.add_argument(
+        "--weights",
+        type=Path,
+        default=None,
+        help="Optional converted DBNet .pth file (run scripts/convert_paddle_dbnet.py to make one).",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Where to write the annotated image (default: <image>_annotated.jpg next to the input).",
+    )
+    args = parser.parse_args()
 
-    # 1. Synthesize a document image and persist it as JPEG.
-    sample = make_synthetic_document()
-    write_jpeg(sample, str(SAMPLE_PATH), quality=92)
-    print(f"wrote synthetic document -> {SAMPLE_PATH.name} {tuple(sample.shape)}")
+    if not args.image.exists():
+        raise FileNotFoundError(f"Input image not found: {args.image}")
+    output_path = args.output or args.image.with_name(f"{args.image.stem}_annotated.jpg")
 
-    # 2. Load the image back through torchocr's I/O utility.
-    image = load_image(SAMPLE_PATH)
-    print(f"loaded {SAMPLE_PATH.name}: shape={tuple(image.shape)} dtype={image.dtype}")
+    bgr = cv2.imread(str(args.image))
+    print(f"loaded {args.image.name}: shape={bgr.shape}")
 
-    # 3. uint8 -> float [0, 1] for the pipeline's conv layers.
-    image_float = image.float().div_(255.0)
+    # Build detector. Use the ResNet-VD path when real weights are provided,
+    # since that's the only path with PaddleOCR-compatible parameter shapes.
+    if args.weights is not None:
+        if not args.weights.exists():
+            raise FileNotFoundError(f"Weights file not found: {args.weights}")
+        detector = DBNet(backbone="resnet18_vd")
+        state = torch.load(args.weights, map_location="cpu", weights_only=True)
+        detector.load_state_dict(state, strict=True)
+        print(f"loaded converted detector weights from {args.weights} ({len(state)} tensors)")
+    else:
+        detector = DBNet()  # random init, torchvision ResNet-18
+        print("using random-init DBNet (boxes will be noise; pass --weights to use real weights)")
+    detector.train(False)
 
-    # 4. Build the pipeline. blank + 95 ASCII printables = 96 classes.
+    # Recognizer is always random-init at v0.2.0 -- decoded text will be noise.
     charset = ["-"] + [chr(c) for c in range(32, 127)]
-    detector = DBNet().train(False)
     recognizer = CRNN(num_classes=len(charset)).train(False)
+
     pipeline = OCRPipeline(
-        detector,
-        recognizer,
-        DBPostProcessor(threshold=0.3),
-        CTCGreedyDecoder(charset),
+        detector=detector,
+        recognizer=recognizer,
+        post_processor=DBPostProcessor(),
+        decoder=CTCGreedyDecoder(charset),
     )
 
-    # 5. Run the full pipeline.
-    document = pipeline(image_float)
+    image_tensor = preprocess_for_detector(bgr)
+    document = pipeline(image_tensor)
     box_count = 0 if document.bounding_boxes is None else document.bounding_boxes.shape[0]
-    print(f"detected {box_count} box(es); decoded text: {document.text}")
+    print(f"detected {box_count} box(es); decoded text (random recognizer): {document.text}")
 
-    # 6. Visualize on the uint8 sample (draw_bounding_boxes wants uint8).
+    # Map detection-space boxes back to original image pixels.
+    detector_h, detector_w = image_tensor.shape[-2:]
+    src_h, src_w = bgr.shape[:2]
+    sx, sy = src_w / detector_w, src_h / detector_h
+    rgb_uint8 = torch.from_numpy(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)).permute(2, 0, 1).contiguous()
     if box_count > 0:
-        labels = [text if text else "<noise>" for text in document.text]
-        annotated = draw_bounding_boxes(
-            sample,
-            document.bounding_boxes,
-            labels=labels,
-            colors="red",
-            width=3,
-        )
+        boxes = document.bounding_boxes.clone()
+        boxes[:, [0, 2]] *= sx
+        boxes[:, [1, 3]] *= sy
+        labels = [t if t else "<noise>" for t in document.text]
+        annotated = draw_bounding_boxes(rgb_uint8, boxes, labels=labels, colors="red", width=3)
     else:
-        print("no detections — saving the input image unannotated")
-        annotated = sample
+        print("no detections; saving the input image unannotated")
+        annotated = rgb_uint8
 
-    write_jpeg(annotated, str(OUTPUT_PATH), quality=92)
-    print(f"wrote annotated visualization -> {OUTPUT_PATH.name}")
+    write_jpeg(annotated, str(output_path), quality=92)
+    print(f"wrote {output_path}")
 
-    # 7. Disclaimer (also at the top of this file).
-    print()
-    print("NOTE: Models are currently randomly initialized. The detected boxes")
-    print("and text are noise, but this proves the end-to-end tensor pipeline")
-    print("and shape contracts function perfectly.")
+    if args.weights is None:
+        print()
+        print("NOTE: Without --weights the detector and recognizer are random-init.")
+        print("Pass a converted .pth from scripts/convert_paddle_dbnet.py to see real boxes.")
 
 
 if __name__ == "__main__":

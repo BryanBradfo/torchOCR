@@ -13,11 +13,17 @@ dependencies = [
     "torchvision",
     "pymupdf",
     "scipy",
+    "opencv-python-headless",
+    "pyclipper",
+    "shapely",
 ]
 
 [project.optional-dependencies]
 test = [
     "pytest>=7.0",
+]
+convert = [
+    "paddlepaddle>=2.5",
 ]
 
 [tool.setuptools]

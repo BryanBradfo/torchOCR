@@ -19,6 +19,9 @@ _WEIGHTS_REGISTRY: dict[str, dict[str, str]] = {
     "dbnet": {
         "DEFAULT": f"{_BASE_URL}/dbnet_resnet18.pth",
     },
+    "dbnet_resnet18_vd": {
+        "DEFAULT": f"{_BASE_URL}/dbnet_resnet18_vd.pth",
+    },
     "crnn": {
         "DEFAULT": f"{_BASE_URL}/crnn_vgg.pth",
     },

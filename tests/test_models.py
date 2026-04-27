@@ -54,6 +54,42 @@ def test_dbnet_pretrained_backbone_offline_safe():
     assert out.probability.shape == (1, 1, 64, 64)
 
 
+# === DBNet ResNet-VD path ===
+
+def test_dbnet_resnet18_vd_returns_output_dataclass():
+    model = DBNet(backbone="resnet18_vd").train(False)
+    with torch.no_grad():
+        out = model(torch.randn(1, 3, 64, 64))
+    assert isinstance(out, DBNetOutput)
+
+
+def test_dbnet_resnet18_vd_output_shape_matches_input():
+    model = DBNet(backbone="resnet18_vd").train(False)
+    with torch.no_grad():
+        out = model(torch.randn(2, 3, 96, 64))
+    assert out.probability.shape == (2, 1, 96, 64)
+    assert out.threshold.shape == (2, 1, 96, 64)
+
+
+def test_dbnet_resnet18_vd_outputs_in_unit_range():
+    model = DBNet(backbone="resnet18_vd").train(False)
+    with torch.no_grad():
+        out = model(torch.randn(1, 3, 64, 64))
+    assert 0.0 <= out.probability.min().item() <= out.probability.max().item() <= 1.0
+
+
+def test_dbnet_rejects_unknown_backbone():
+    with pytest.raises(ValueError):
+        DBNet(backbone="totally-not-real")  # type: ignore[arg-type]
+
+
+def test_dbnet_resnet18_vd_state_dict_keys_have_expected_prefixes():
+    """The converter assumes top-level prefixes (backbone, fpn, binarize, thresh)."""
+    keys = list(DBNet(backbone="resnet18_vd").state_dict().keys())
+    prefixes = {k.split(".")[0] for k in keys}
+    assert prefixes == {"backbone", "fpn", "binarize", "thresh"}
+
+
 # === CRNN ===
 
 def test_crnn_forward_shape():
