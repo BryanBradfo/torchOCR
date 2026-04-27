@@ -79,13 +79,20 @@ CRNN forward returns *raw* logits — callers apply `log_softmax` for `nn.CTCLos
 There is no `tests/` directory yet (it's on the roadmap). Today's verification surface:
 
 ```bash
-# Shape contracts
+# Full pytest suite
+python -m pytest tests/
+
+# Shape-contract smoke (no pytest)
 python scripts/test_inference.py
 
-# Image demo (writes examples/sample_doc.jpg, examples/demo_output.jpg)
+# Image demo on a real Chinese document (writes examples/chinese_receipt_annotated.jpg)
 python examples/demo_inference.py
 
-# PDF demo (writes examples/sample_doc.pdf)
+# Same demo with converted PaddleOCR weights (real boxes, not random):
+# 1) python scripts/convert_paddle_dbnet.py --paddle-weights <pdparams> --output /tmp/dbnet_rvd.pth
+# 2) python examples/demo_inference.py --weights /tmp/dbnet_rvd.pth
+
+# PDF demo (uses examples/sample_doc.pdf)
 python examples/demo_pdf.py
 
 # CLI on the synthetic PDF
