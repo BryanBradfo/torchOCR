@@ -1,28 +1,35 @@
 """Post-processing utilities for detector outputs."""
 
+import numpy as np
+import scipy.ndimage as ndi
 import torch
 from torch import Tensor
-from torchvision.ops import masks_to_boxes
 
 from .models.detection import DBNetOutput
 
 
 class DBPostProcessor:
-    """Extract axis-aligned bounding boxes from DBNet probability maps.
+    """Extract per-region bounding boxes from DBNet probability maps.
 
-    The probability map is binarized at ``threshold`` and the resulting
-    boolean mask is fed to :func:`torchvision.ops.masks_to_boxes`,
-    yielding one tight bounding box per non-empty image in the batch.
-    Images whose masks have no foreground pixels are silently dropped.
+    Thresholds the probability map into a boolean mask, runs
+    connected-component labeling on each batch image via
+    :func:`scipy.ndimage.label`, and emits one axis-aligned bounding
+    box per disconnected component using
+    :func:`scipy.ndimage.find_objects`.
 
     The output is shaped ``(K, 5)`` with columns
     ``[batch_idx, x1, y1, x2, y2]`` so it composes directly with
-    :func:`torchvision.ops.roi_align`. ``K`` is the number of batch
-    elements that actually contain text — never larger than ``B``.
+    :func:`torchvision.ops.roi_align`. ``K`` is the *total* number of
+    components across the batch (not capped at one per image), so a
+    multi-line document yields one box per text line. Coordinates use
+    inclusive max (``x2``, ``y2`` are the *last* foreground pixels)
+    matching the convention of :func:`torchvision.ops.masks_to_boxes`.
 
-    This MVP collapses every detected pixel into a single AABB per
-    image. Multi-region detection requires per-instance masks (via
-    connected-component labeling or contour finding); see the roadmap.
+    Note:
+        ``scipy.ndimage`` runs on CPU; GPU probability maps are moved
+        to CPU for labeling, then the resulting box tensor is placed
+        back on the original device. The sync cost is sub-millisecond
+        for typical OCR-page resolutions.
 
     Args:
         threshold: Probability threshold for binarization. Default 0.3,
@@ -41,11 +48,27 @@ class DBPostProcessor:
                 f"Expected probability of shape (B, 1, H, W); got {tuple(probability.shape)}."
             )
 
-        masks = probability[:, 0] > self.threshold
-        present = masks.flatten(1).any(dim=1).nonzero(as_tuple=True)[0]
-        if present.numel() == 0:
-            return torch.zeros((0, 5), dtype=torch.float32, device=probability.device)
+        masks_np: np.ndarray = (probability[:, 0] > self.threshold).cpu().numpy()
+        rows: list[list[float]] = []
+        for batch_idx in range(masks_np.shape[0]):
+            page_mask = masks_np[batch_idx]
+            if not page_mask.any():
+                continue
+            labeled, _ = ndi.label(page_mask)
+            for region in ndi.find_objects(labeled):
+                if region is None:
+                    continue
+                y_slice, x_slice = region
+                rows.append(
+                    [
+                        float(batch_idx),
+                        float(x_slice.start),
+                        float(y_slice.start),
+                        float(x_slice.stop - 1),
+                        float(y_slice.stop - 1),
+                    ]
+                )
 
-        boxes = masks_to_boxes(masks[present])
-        batch_indices = present.to(boxes.dtype).unsqueeze(1)
-        return torch.cat([batch_indices, boxes], dim=1)
+        if not rows:
+            return torch.zeros((0, 5), dtype=torch.float32, device=probability.device)
+        return torch.tensor(rows, dtype=torch.float32, device=probability.device)
