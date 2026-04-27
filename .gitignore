@@ -243,3 +243,9 @@ desktop.ini
 *.swp
 *.swo
 *~
+
+# Upstream Paddle weights
+*.tar
+*.pdparams
+*.pdopt
+*.states
