@@ -122,3 +122,30 @@ def test_crnn_rejects_bad_shape(shape, reason):
 def test_crnn_requires_num_classes():
     with pytest.raises(TypeError):
         CRNN()  # type: ignore[call-arg]
+
+
+# === CRNN ResNet-34-VD path ===
+
+def test_crnn_resnet34_vd_forward_shape():
+    """The PaddleOCR-compatible recognizer path must keep the (T, B, num_classes) contract."""
+    model = CRNN(num_classes=6625, backbone="resnet34_vd").train(False)
+    with torch.no_grad():
+        out = model(torch.randn(2, 3, 32, 320))
+    assert out.shape == (80, 2, 6625)  # T = W // 4
+
+
+def test_crnn_resnet34_vd_state_dict_layout():
+    """State-dict must split into the backbone/neck/head prefixes the converter expects."""
+    keys = list(CRNN(num_classes=6625, backbone="resnet34_vd").state_dict().keys())
+    prefixes = {k.split(".")[0] for k in keys}
+    assert prefixes == {"backbone", "neck", "head"}
+    # LSTM weight names must match PyTorch's flat bidirectional convention so
+    # the Paddle weights port over without a remap.
+    lstm_keys = {k for k in keys if "lstm" in k}
+    assert "neck.encoder.lstm.weight_ih_l0" in lstm_keys
+    assert "neck.encoder.lstm.weight_ih_l0_reverse" in lstm_keys
+
+
+def test_crnn_rejects_unknown_backbone():
+    with pytest.raises(ValueError):
+        CRNN(num_classes=10, backbone="totally-not-real")  # type: ignore[arg-type]

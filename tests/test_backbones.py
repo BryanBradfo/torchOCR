@@ -34,6 +34,39 @@ def test_resnet_vd_rejects_unsupported_depth():
         ResNetVd(depth=50)  # type: ignore[arg-type]
 
 
+def test_resnet_vd_depth_34_block_layout():
+    """Depth=34 uses BasicBlock with PaddleOCR's [3, 4, 6, 3] block pattern."""
+    backbone = ResNetVd(depth=34)
+    keys = backbone.state_dict().keys()
+    # In a key like 'stages.0.bb_0_0.conv0._conv.weight', the block name is at index 2.
+    stage0_blocks = {k.split(".")[2] for k in keys if k.startswith("stages.0.")}
+    stage2_blocks = {k.split(".")[2] for k in keys if k.startswith("stages.2.")}
+    assert stage0_blocks == {f"bb_0_{i}" for i in range(3)}
+    assert stage2_blocks == {f"bb_2_{i}" for i in range(6)}
+
+
+def test_resnet_vd_recognizer_strides_collapse_height_to_one():
+    """Recognizer mode (stem_stride=1, downsample=(2,1), final_pool) maps 32xW -> 1xW/4."""
+    backbone = ResNetVd(
+        depth=34,
+        downsample_stride=(2, 1),
+        stem_stride=1,
+        final_pool=True,
+    ).train(False)
+    with torch.no_grad():
+        out = backbone(torch.randn(1, 3, 32, 320))
+    assert out["c5"].shape == (1, 512, 1, 80)  # height collapsed to 1, width is 320/4=80
+
+
+def test_resnet_vd_detector_mode_unchanged():
+    """Default args (detection) must keep the original output strides."""
+    backbone = ResNetVd(depth=18).train(False)
+    with torch.no_grad():
+        out = backbone(torch.randn(1, 3, 128, 128))
+    assert out["c5"].shape == (1, 512, 4, 4)
+    assert backbone.out_pool is None
+
+
 def test_resnet_vd_rejects_non_4d_input():
     backbone = ResNetVd(depth=18)
     with pytest.raises(ValueError):
