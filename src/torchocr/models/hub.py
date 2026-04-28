@@ -25,6 +25,9 @@ _WEIGHTS_REGISTRY: dict[str, dict[str, str]] = {
     "crnn": {
         "DEFAULT": f"{_BASE_URL}/crnn_vgg.pth",
     },
+    "crnn_resnet34_vd": {
+        "DEFAULT": f"{_BASE_URL}/crnn_resnet34_vd.pth",
+    },
 }
 
 

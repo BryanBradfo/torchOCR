@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `CRNN(backbone="resnet34_vd")`: PaddleOCR-compatible recognizer path. Wires `ResNetVd(depth=34, downsample_stride=(2, 1), stem_stride=1, final_pool=True)` through a `_SequenceEncoder` (Im2Seq + 2-layer BiLSTM) and a `_CTCHead` (single Linear). Output contract is unchanged — `(T, B, num_classes)` for direct CTC-decoder reuse.
+- `scripts/convert_paddle_crnn.py`: build-time CLI converting PaddleOCR recognizer `.pdparams` (e.g. `ch_ppocr_server_v2.0_rec_train`) to a torchocr `.pth`. Auto-detects flat vs. stage-prefixed naming. Includes the FC-weight transpose Paddle Linear layers require.
+- `scripts/test_full_ocr.py`: standalone end-to-end OCR demo that handles per-stage preprocessing (ImageNet normalization for the detector, `(x-127.5)/127.5` for the recognizer) and decodes Chinese results via the vendored charset. Bypasses `OCRPipeline` because the latter assumes a single normalization across stages — proper integration is Phase C scope.
+- `torchocr.charsets.load_ppocr_keys_v1`: loader for the vendored Chinese full-charset (6622 chars + blank + space, sized to 6625 to match PaddleOCR's hardcoded `out_channels`).
+- `src/torchocr/data/ppocr_keys_v1.txt`: vendored from PaddleOCR2Pytorch (Apache-2.0); package data wired via `[tool.setuptools.package-data]`.
+- `crnn_resnet34_vd` weight-hub registry entry pointing at `huggingface.co/BryanBradfo/torchocr-weights/.../crnn_resnet34_vd.pth`.
+- `tests/test_charsets.py` and `tests/test_crnn_converter.py` (parametrized for both `flat` and `prefixed` formats, including a bijective full-state-dict mapping check).
+- New backbone parameters `stem_stride` (default 2; recognizer needs 1) and `final_pool` (default False; recognizer adds `MaxPool(2, 2)` after the last stage). Detector default behavior is byte-identical to before.
 - `ResNetVd` backbone (`src/torchocr/models/backbones/resnet_vd.py`) matching PaddleOCR's `det_resnet_vd` structure: 3-conv VD stem, avg-pool shortcuts on stride-2 blocks. Internal submodule names mirror PaddleOCR (`conv1_1`, `stages.N.bb_<i>_<j>`, `_conv`, `_batch_norm`) so PaddleOCR-trained weights translate via a small mechanical name remap.
 - `DBNet(backbone="resnet18_vd")` constructor option that wires the new backbone through a Paddle-compatible DBFPN neck (cascaded top-down adds + concat) and DBHead modules (`binarize`, `thresh`).
 - `scripts/convert_paddle_dbnet.py`: build-time CLI that reads a PaddleOCR `.pdparams` checkpoint and writes a torchocr-compatible `.pth`. Lazy-imports `paddle`; the rest of torchocr has no Paddle dependency.

@@ -19,9 +19,19 @@ path adapts the following ideas from PaddleOCR2Pytorch:
   (`pytorchocr/postprocess/db_postprocess.py`).
 - **Tensor-name remapping rules** for the converter:
   `running_mean`/`running_var` -> `_mean`/`_variance`,
-  `stages.N` -> `stageN`, `head.binarize` / `head.thresh` nesting
+  `stages.N` -> `stageN`, `head.binarize` / `head.thresh` nesting,
+  Linear-weight transpose for the CTC head
   (`converter/det_converter.py`,
-  `converter/ch_ppocr_v3_det_converter.py`).
+  `converter/ch_ppocr_v3_det_converter.py`,
+  `converter/rec_converter.py`).
+- **Recognition architecture details**: the `(2, 1)` recognizer-stride
+  pattern, the `out_pool` final downsample, and the SequenceEncoder
+  (`Im2Seq` + 2-layer BiLSTM) layout used by `ch_ppocr_v2.0_rec`
+  (`pytorchocr/modeling/backbones/rec_resnet_vd.py`,
+  `pytorchocr/modeling/necks/rnn.py`,
+  `pytorchocr/modeling/heads/rec_ctc_head.py`).
+- **Chinese charset file**: `src/torchocr/data/ppocr_keys_v1.txt`
+  vendored verbatim from `pytorchocr/utils/ppocr_keys_v1.txt`.
 
 torchocr re-implements these in the torchvision idiom (typed
 dataclasses, modular composition, runtime shape contracts) rather

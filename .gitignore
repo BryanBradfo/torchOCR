@@ -239,6 +239,7 @@ tb_logs/
 
 # Operating-system clutter.
 .DS_Store
+._*
 Thumbs.db
 desktop.ini
 
