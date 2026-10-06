@@ -95,7 +95,7 @@ def paddle_name_for(torch_name: str, stage_format: StageFormat = "prefixed") -> 
 
 
 def load_paddle_state(weights_path: Path) -> dict[str, Any]:
-    """Load a ``.pdparams`` Paddle checkpoint (Paddle 1.x or 2.x)."""
+    """Load a ``.pdparams`` Paddle checkpoint (Paddle >= 2.5)."""
     try:
         import paddle  # type: ignore[import-not-found]
     except ImportError as exc:
@@ -104,14 +104,9 @@ def load_paddle_state(weights_path: Path) -> dict[str, Any]:
             "Install conversion extras: pip install torchocr[convert]\n"
             f"  ({type(exc).__name__}: {exc})"
         )
-    try:
-        return paddle.load(str(weights_path))
-    except Exception:
-        import paddle.fluid as fluid  # type: ignore[import-not-found]
-
-        with fluid.dygraph.guard():
-            params, _ = fluid.load_dygraph(str(weights_path))
-        return params
+    if not weights_path.is_file():
+        sys.exit(f"ERROR: {weights_path} does not exist.")
+    return paddle.load(str(weights_path))
 
 
 # ---------------------------------------------------------------------------

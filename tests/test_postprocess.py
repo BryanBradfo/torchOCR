@@ -129,3 +129,36 @@ def test_rejects_bad_input_shape():
     )
     with pytest.raises(ValueError):
         DBPostProcessor()(bad)
+
+
+def test_quadrilaterals_follow_rotated_text():
+    """A 45-degree bar yields a rotated quad, not its axis-aligned hull."""
+    import cv2
+    import numpy as np
+
+    canvas = np.zeros((128, 128), dtype=np.float32)
+    cv2.line(canvas, (24, 24), (104, 104), color=0.95, thickness=8)
+    output = _strong(torch.from_numpy(canvas)[None, None])
+
+    quads = DBPostProcessor().quadrilaterals(output)
+    assert len(quads) == 1 and quads[0].shape == (1, 4, 2)
+    quad = quads[0][0]
+    # Area of a thin rotated quad is far below its axis-aligned bounding box.
+    x, y = quad[:, 0], quad[:, 1]
+    area = 0.5 * torch.abs(torch.dot(x, y.roll(-1)) - torch.dot(y, x.roll(-1)))
+    hull = (x.max() - x.min()) * (y.max() - y.min())
+    assert area < 0.4 * hull
+
+
+def test_quadrilaterals_agree_with_axis_aligned_boxes():
+    prob = torch.zeros(2, 1, 96, 192)
+    prob[0, 0, 20:60, 20:60] = 0.95
+    prob[0, 0, 20:60, 130:170] = 0.95
+    output = _strong(prob)
+    processor = DBPostProcessor()
+
+    quads = processor.quadrilaterals(output)
+    boxes = processor(output)
+    assert [q.shape[0] for q in quads] == [2, 0]
+    hulls = torch.cat([quads[0].amin(1), quads[0].amax(1)], dim=1)
+    assert torch.allclose(hulls[hulls[:, 0].argsort()], boxes[boxes[:, 1].argsort(), 1:], atol=1e-4)

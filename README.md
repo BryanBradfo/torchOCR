@@ -108,16 +108,24 @@ Mismatched inputs raise `ValueError` with the offending shape — a debugging ai
 
 | Capability | State |
 | --- | --- |
-| `DBNet` architecture + shape contract | ✅ Implemented |
-| `CRNN` architecture + shape contract | ✅ Implemented |
-| `DocumentTensor` data structure | ✅ Implemented |
-| Smoke-test inference (`scripts/test_inference.py`) | ✅ Implemented |
-| Pretrained OCR weights | 🚧 In progress |
-| CTC greedy + beam decoding | 🚧 In progress |
-| DB post-processing (polygon extraction) | 🚧 In progress |
-| Training loops & loss helpers | 📋 Planned |
+| `DBNet` / `CRNN` architectures + shape contracts | ✅ Implemented |
+| Pretrained weights (`*_Weights` enums, hash-checked, on [Hugging Face](https://huggingface.co/BryanBradfo/torchocr-weights)) | ✅ 4 PaddleOCR conversions + 1 torchocr-trained detector |
+| DB post-processing (contours → rotated quads) | ✅ Implemented |
+| `torchocr.ops.crop_quads` (batched perspective rectification) | ✅ Implemented |
+| `torchocr.metrics` (ICDAR hmean, word accuracy / CER) and `torchocr.datasets.ICDAR2015` | ✅ Implemented |
+| DB training (`references/detection/train.py`) | ✅ Implemented |
+| CTC greedy decoding | ✅ Implemented |
+| End-to-end `OCRPipeline` with pretrained weights | 🚧 In progress |
+| CTC beam decoding | 📋 Planned |
 
-The current release establishes the public API and shape contracts. Heads are randomly initialized; only the ResNet-18 backbone has ImageNet-pretrained weights when `pretrained_backbone=True`. Treat the API as stable and the weights as forthcoming.
+Benchmarks (ICDAR-2015 test, official IoU protocol, reproducible with `references/`):
+
+| Weights | hmean |
+| --- | --- |
+| `DBNet_MobileNetV3_Large_05_Weights.ICDAR2015` (trained by torchocr, 0.6 M params) | **0.734** |
+| `DBNet_MobileNetV3_Large_05_Weights.PPOCR_V3_EN` (converted, line-level) | 0.441 |
+
+`weights.meta` documents each checkpoint's provenance, license, preprocessing and known limits.
 
 ## Roadmap
 
