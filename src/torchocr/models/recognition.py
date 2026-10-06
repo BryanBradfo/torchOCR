@@ -1,15 +1,50 @@
 """Text recognition model definitions."""
 
+from functools import partial
 from typing import Literal
 
-import torch
 from torch import Tensor, nn
 
+from ..transforms import RecognitionPreset
 from .backbones import ResNetVd
-from .hub import load_pretrained_state_dict
+from .hub import BASE_URL, Weights, WeightsEnum, load_weights, register_model
 
 
 BackboneName = Literal["vgg", "resnet34_vd"]
+
+
+class CRNN_ResNet34_VD_Weights(WeightsEnum):
+    PPOCR_SERVER_V2 = Weights(
+        url=f"{BASE_URL}/crnn_resnet34_vd_ppocr_server_v2-803ba4c9.pth",
+        # PaddleOCR rec: BGR pixels, (x - 127.5) / 127.5, height 32.
+        transforms=partial(RecognitionPreset, height=32, max_width=320, channel_order="bgr"),
+        meta={
+            "task": "recognition",
+            "backbone": "resnet34_vd",
+            "num_params": 27_860_673,
+            "num_classes": 6625,
+            "charset": "ppocr_keys_v1",  # torchocr.charsets.load_charset
+            "source": "PaddleOCR ch_ppocr_server_v2.0_rec_train, via scripts/convert_paddle_crnn.py",
+            "license": "Apache-2.0",
+            "languages": ["ch", "en"],
+            "_metrics": {
+                "ICDAR2015-test-gt-quads": {"word_accuracy": 0.6649, "char_error_rate": 0.1333},
+            },
+            "_docs": (
+                "Chinese + English line recognizer (CTC, 6623 characters + blank) trained by "
+                "PaddleOCR mostly on document and street-sign text lines. Benchmark: the 2077 "
+                "alphanumeric care words of ICDAR-2015 test, cropped from the full images with "
+                "torchocr.ops.crop_quads on their ground-truth quads, scored case-insensitively "
+                "over letters and digits (not the official Task 4.3 crops). Axis-aligned crops of "
+                "the same words score 0.5787 -- rotated scene text needs quad rectification. "
+                "Reproduce with references/recognition/evaluate.py."
+            ),
+        },
+    )
+    DEFAULT = PPOCR_SERVER_V2
+
+
+_WEIGHTS_BY_BACKBONE: dict[str, type[WeightsEnum]] = {"resnet34_vd": CRNN_ResNet34_VD_Weights}
 
 
 class _Im2Seq(nn.Module):
@@ -97,16 +132,16 @@ class CRNN(nn.Module):
 
     Args:
         num_classes: Number of output classes including the CTC blank.
-            Required -- caller must commit to a charset. PaddleOCR's
-            Chinese full charset is 6625 (6624 chars + blank).
-        backbone: ``"vgg"`` (default) or ``"resnet34_vd"``.
-        weights: Optional named preset of pretrained recognition
-            weights. Pass ``"DEFAULT"`` to download torchocr's
-            published checkpoint for the chosen backbone. If the
-            download fails the model falls back to random init with a
-            printed warning. Default ``None``. The downloaded
-            checkpoint must match the ``num_classes`` you instantiate
-            with.
+            Required without ``weights`` -- the caller must commit to a
+            charset. With ``weights`` it defaults to
+            ``weights.meta["num_classes"]`` and must equal it if given.
+        backbone: ``"vgg"`` or ``"resnet34_vd"``. Default ``None``:
+            taken from ``weights`` when it is an enum member, else
+            ``"vgg"``.
+        weights: Pretrained weights -- a :class:`CRNN_ResNet34_VD_Weights`
+            member or a member name such as ``"DEFAULT"``. If the download
+            fails a ``UserWarning`` is emitted and the model keeps its
+            random initialization. Default ``None``.
         input_channels: Channels in the input crops. Default 3.
         rnn_hidden: Hidden size of each BiLSTM direction. Default 256.
 
@@ -120,13 +155,29 @@ class CRNN(nn.Module):
 
     def __init__(
         self,
-        num_classes: int,
-        backbone: BackboneName = "vgg",
-        weights: str | None = None,
+        num_classes: int | None = None,
+        backbone: BackboneName | None = None,
+        weights: WeightsEnum | str | None = None,
         input_channels: int = 3,
         rnn_hidden: int = 256,
     ) -> None:
         super().__init__()
+        if backbone is None:
+            backbone = weights.meta["backbone"] if isinstance(weights, WeightsEnum) else "vgg"
+        if weights is not None:
+            if backbone not in _WEIGHTS_BY_BACKBONE:
+                raise ValueError(
+                    f"No pretrained weights are published for backbone '{backbone}'. "
+                    f"Backbones with weights: {sorted(_WEIGHTS_BY_BACKBONE)}."
+                )
+            weights = _WEIGHTS_BY_BACKBONE[backbone].verify(weights)
+            expected = weights.meta["num_classes"]
+            if num_classes is None:
+                num_classes = expected
+            elif num_classes != expected:
+                raise ValueError(f"{weights!r} has num_classes={expected}; got num_classes={num_classes}.")
+        if num_classes is None:
+            raise ValueError("num_classes is required when no pretrained weights are given.")
         self.backbone_name = backbone
 
         if backbone == "vgg":
@@ -175,10 +226,7 @@ class CRNN(nn.Module):
             )
 
         if weights is not None:
-            registry_key = "crnn_resnet34_vd" if backbone == "resnet34_vd" else "crnn"
-            state_dict = load_pretrained_state_dict(registry_key, weights)
-            if state_dict is not None:
-                self.load_state_dict(state_dict)
+            load_weights(self, weights)
 
     def forward(self, images: Tensor) -> Tensor:
         if images.ndim != 4 or images.shape[2] != 32:
@@ -196,3 +244,17 @@ class CRNN(nn.Module):
         contextual = self.neck(c5)  # (B, T, 2*rnn_hidden)
         logits = self.head(contextual)  # (B, T, num_classes)
         return logits.permute(1, 0, 2)  # (T, B, num_classes) for CTC decoder
+
+
+@register_model("crnn_vgg")
+def crnn_vgg(*, num_classes: int, **kwargs: object) -> CRNN:
+    """CRNN with the original VGG-style CNN (no published weights)."""
+    return CRNN(num_classes=num_classes, backbone="vgg", **kwargs)
+
+
+@register_model("crnn_resnet34_vd", weights=CRNN_ResNet34_VD_Weights)
+def crnn_resnet34_vd(
+    *, weights: CRNN_ResNet34_VD_Weights | str | None = None, num_classes: int | None = None, **kwargs: object
+) -> CRNN:
+    """PaddleOCR-compatible CRNN (ResNet-34-VD + BiLSTM + CTC); see :class:`CRNN_ResNet34_VD_Weights`."""
+    return CRNN(num_classes=num_classes, backbone="resnet34_vd", weights=weights, **kwargs)

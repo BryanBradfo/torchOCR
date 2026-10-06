@@ -1,21 +1,21 @@
-"""Convert a PaddleOCR DBNet (.pdparams) checkpoint to a torchocr .pth.
+"""Convert a PaddleOCR PP-OCRv3 detector (.pdparams) to a torchocr .pth.
 
-This is a *build-time* utility, intentionally outside ``src/torchocr/``
-because it needs ``paddlepaddle`` to read ``.pdparams`` files. End
-users running torchocr at inference time should never invoke this.
+Targets ``ch_PP-OCRv3_det_distill_train`` and ``ch_PP-OCRv3_det_infer``
+checkpoints whose architecture is MobileNetV3-large + RSEFPN(out=96) + DBHead.
 
-Conversion targets PP-OCRv2 English-style DBNet checkpoints whose
-architecture is ResNet-18-VD + DBFPN(out_channels=256) + DBHead.
-The naming conventions of the underlying layers were chosen in
-``src/torchocr/models/backbones/resnet_vd.py`` and
-``src/torchocr/models/detection.py`` specifically to make this script
-short and mechanical.
+The distillation training checkpoint (``*_distill_train``) holds three
+networks (``Teacher.*``, ``Student.*``, ``Student2.*``) because PP-OCRv3
+was trained with collaborative mutual learning. PaddleOCR exports
+``Student`` for inference -- it is byte-identical to the ``student.pdparams``
+shipped in the same archive -- so that is the one we convert. Inference
+checkpoints and ``student.pdparams`` have no prefix. We auto-detect which
+form we're given.
 
 Usage:
     pip install torchocr[convert]
-    python scripts/convert_paddle_dbnet.py \\
-        --paddle-weights /path/to/en_PP-OCRv2_det_infer/inference \\
-        --output /tmp/dbnet_resnet18_vd.pth
+    python scripts/convert_paddle_dbnet_v3.py \\
+        --paddle-weights /path/to/ch_PP-OCRv3_det_distill_train/best_accuracy.pdparams \\
+        --output /tmp/dbnet_mobilenet_v3_large_05.pth
 
 Conversion recipes derived from PaddleOCR2Pytorch (Apache-2.0); see
 ``CREDITS.md``.
@@ -38,49 +38,57 @@ from torchocr.models.hub import zero_subnormals_
 # ---------------------------------------------------------------------------
 # Parameter-name mapping
 # ---------------------------------------------------------------------------
-# Given a torchocr parameter name like
-# ``backbone.stages.0.bb_0_0.conv0._conv.weight``, translate it to the
-# equivalent Paddle name. PaddleOCR ships two on-disk naming conventions
-# for the same architecture (see ``PaddleOCR2Pytorch/converter/det_converter.py:21-36``):
+# Two transformations on top of the v2 converter's logic:
+#   1. Distillation prefix: PP-OCRv3 distill_train wraps every backbone /
+#      neck / head key under ``Student.`` (plus a ``Student2.`` peer and a
+#      ``Teacher.``). Inference checkpoints don't.
+#   2. RSEFPN replaces DBFPN; the FPN's submodule names changed from
+#      ``in2_conv`` / ``p2_conv`` to ``ins_conv.0.in_conv`` /
+#      ``inp_conv.0.in_conv`` -- but our torchocr model uses the same
+#      ``ins_conv`` / ``inp_conv`` ModuleList layout, so no extra remap
+#      is needed beyond the standard ``fpn.* -> neck.*`` rename.
 #
-#   "prefixed":  ``backbone.stage0.bb_0_0.conv0._conv.weight``
-#   "flat":      ``backbone.bb_0_0.conv0._conv.weight``
-#
-# We auto-detect which one is in the loaded ``.pdparams`` (presence of any
-# ``stage`` substring in the keys) and pick the right rule.
-#
-# Other torchocr <-> Paddle name differences:
-#   1. BatchNorm running stats: ``running_mean`` <-> ``_mean``,
-#      ``running_var`` <-> ``_variance``. Paddle has no equivalent of
-#      ``num_batches_tracked``; we skip those keys entirely.
-#   2. FPN module name: torchocr uses ``fpn.*``, Paddle uses ``neck.*``.
-#   3. Detection-head wrapper: torchocr exposes ``binarize.*`` / ``thresh.*``
-#      directly on DBNet; Paddle nests them under ``head.binarize.*`` /
-#      ``head.thresh.*``.
-#
-# This default implementation uses a regex chain. Other reasonable styles:
-#   - explicit dict + prefix replace (easier to extend to v3/v4
-#     distillation prefixes like ``Student2.*``)
-#   - token-based traversal: split on ``.`` then transform tokens
-#     (most flexible for variants but more code)
-#
-# Choose the style that fits the variants you plan to add next.
+# Paddle's stage segmentation is the same as v2 ResNet-VD: ``stages.N.`` ->
+# ``stageN.`` (prefixed) or ``stages.N.`` -> `` `` (flat), depending on
+# how the .pdparams was saved.
 
 
 StageFormat = str  # "flat" | "prefixed"
 
 
 def detect_stage_format(paddle_state: dict[str, object]) -> StageFormat:
-    """Return ``"prefixed"`` if any Paddle key contains a ``stage`` token,
-    else ``"flat"``. Mirrors PaddleOCR2Pytorch's heuristic."""
-    return "prefixed" if any("stage" in k for k in paddle_state) else "flat"
+    """PP-OCRv3's MobileNetV3 backbone always saves the stage prefix
+    (``stageN``); flat format would collide because inner blocks are
+    numbered, not named with the unique ``bb_<i>_<j>`` pattern that
+    ResNet-VD uses. We surface a clear error if a flat checkpoint shows
+    up so the user knows the v3 converter is the wrong tool."""
+    if not any("stage" in k for k in paddle_state):
+        raise ValueError(
+            "PP-OCRv3 detector checkpoints must use the stage-prefixed naming. "
+            "If your .pdparams uses flat naming you likely have a v2 checkpoint -- "
+            "use scripts/convert_paddle_dbnet.py instead."
+        )
+    return "prefixed"
 
 
-def paddle_name_for(torch_name: str, stage_format: StageFormat = "prefixed") -> str | None:
-    """Translate a torchocr parameter name to its Paddle counterpart.
+def detect_distill_prefix(paddle_state: dict[str, object]) -> str:
+    """Return ``"Student."`` if the checkpoint nests params under the
+    exported distillation student, else the empty string.
 
-    Returns ``None`` for parameters that have no Paddle equivalent
-    (e.g. ``num_batches_tracked``) so the caller can skip them.
+    Converting ``Student2.`` instead loads a weaker peer network: on
+    ICDAR-2015 the Chinese model drops from 0.422 to 0.325 hmean.
+    """
+    return "Student." if any(k.startswith("Student.") for k in paddle_state) else ""
+
+
+def paddle_name_for(
+    torch_name: str,
+    stage_format: StageFormat = "prefixed",
+    distill_prefix: str = "",
+) -> str | None:
+    """Translate a torchocr DBNet(mobilenet_v3_large_05) parameter name
+    to its Paddle counterpart. Returns ``None`` for params with no
+    Paddle equivalent (``num_batches_tracked``).
     """
     if torch_name.endswith("num_batches_tracked"):
         return None
@@ -94,12 +102,14 @@ def paddle_name_for(torch_name: str, stage_format: StageFormat = "prefixed") -> 
     elif name.startswith("binarize.") or name.startswith("thresh."):
         name = "head." + name
 
-    if stage_format == "prefixed":
-        name = re.sub(r"^backbone\.stages\.(\d+)\.", r"backbone.stage\1.", name)
-    elif stage_format == "flat":
-        name = re.sub(r"^backbone\.stages\.\d+\.", "backbone.", name)
-    else:
-        raise ValueError(f"Unknown stage_format {stage_format!r}; expected 'flat' or 'prefixed'.")
+    if stage_format != "prefixed":
+        raise ValueError(
+            f"v3 converter only supports prefixed stage format; got {stage_format!r}."
+        )
+    name = re.sub(r"^backbone\.stages\.(\d+)\.", r"backbone.stage\1.", name)
+
+    if distill_prefix:
+        name = distill_prefix + name
     return name
 
 
@@ -109,7 +119,7 @@ def paddle_name_for(torch_name: str, stage_format: StageFormat = "prefixed") -> 
 
 
 def load_paddle_state(weights_path: Path) -> dict[str, Any]:
-    """Load a ``.pdparams`` (or ``best_accuracy``) Paddle checkpoint (Paddle >= 2.5)."""
+    """Load a ``.pdparams`` Paddle checkpoint (Paddle >= 2.5)."""
     try:
         import paddle  # type: ignore[import-not-found]
     except ImportError as exc:
@@ -118,10 +128,6 @@ def load_paddle_state(weights_path: Path) -> dict[str, Any]:
             "Install conversion extras: pip install torchocr[convert]\n"
             f"  ({type(exc).__name__}: {exc})"
         )
-
-    # No Paddle 1.x ``fluid.load_dygraph`` fallback: ``paddle.fluid`` is gone
-    # since Paddle 2.6, and catching here only hid the real error (e.g. a
-    # wrong path surfaced as "No module named 'paddle.fluid'").
     if not weights_path.is_file():
         sys.exit(f"ERROR: {weights_path} does not exist.")
     return paddle.load(str(weights_path))
@@ -135,12 +141,14 @@ def load_paddle_state(weights_path: Path) -> dict[str, Any]:
 def convert(weights_path: Path, output_path: Path) -> None:
     paddle_state = load_paddle_state(weights_path)
     stage_format = detect_stage_format(paddle_state)
+    distill_prefix = detect_distill_prefix(paddle_state)
     print(
-        f"Loaded {len(paddle_state)} tensors from {weights_path} "
-        f"(stage format: {stage_format})"
+        f"Loaded {len(paddle_state)} tensors from {weights_path}\n"
+        f"  stage format: {stage_format}\n"
+        f"  distillation prefix: {distill_prefix or '(none)'}"
     )
 
-    model = DBNet(backbone="resnet18_vd")
+    model = DBNet(backbone="mobilenet_v3_large_05")
     model.train(False)
     torch_state = model.state_dict()
 
@@ -150,7 +158,7 @@ def convert(weights_path: Path, output_path: Path) -> None:
     shape_mismatch: list[tuple[str, str, tuple[int, ...], tuple[int, ...]]] = []
 
     for torch_key in torch_state:
-        paddle_key = paddle_name_for(torch_key, stage_format)
+        paddle_key = paddle_name_for(torch_key, stage_format, distill_prefix)
         if paddle_key is None:
             skipped.append(torch_key)
             continue
@@ -188,7 +196,6 @@ def convert(weights_path: Path, output_path: Path) -> None:
             print(f"  - {torch_key} (torch {torch_shape}) vs {paddle_key} (paddle {paddle_shape})")
         sys.exit(1)
 
-    # Verify the model accepts the new state cleanly before writing.
     model.load_state_dict(torch_state, strict=True)
     # Paddle's weight decay leaves dead channels at ~1e-40: exact zeros keep CPU inference fast.
     print(f"Zeroed {zero_subnormals_(model)} subnormal values.")
@@ -201,18 +208,8 @@ def convert(weights_path: Path, output_path: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument(
-        "--paddle-weights",
-        type=Path,
-        required=True,
-        help="Path prefix to the .pdparams file (e.g. .../inference, no extension).",
-    )
-    parser.add_argument(
-        "--output",
-        type=Path,
-        required=True,
-        help="Where to write the converted .pth file.",
-    )
+    parser.add_argument("--paddle-weights", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     convert(args.paddle_weights, args.output)
 

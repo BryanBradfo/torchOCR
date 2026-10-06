@@ -30,6 +30,19 @@ path adapts the following ideas from PaddleOCR2Pytorch:
   (`pytorchocr/modeling/backbones/rec_resnet_vd.py`,
   `pytorchocr/modeling/necks/rnn.py`,
   `pytorchocr/modeling/heads/rec_ctc_head.py`).
+- **MobileNetV3 architecture**: layer config tables (large/small),
+  `make_divisible` rounding rule, HardSwish/HardSigmoid activations,
+  inverted-residual block with optional SE attention
+  (`pytorchocr/modeling/backbones/det_mobilenet_v3.py`).
+- **RSEFPN structure**: `RSELayer` (Conv + SEModule + shortcut) and
+  the cascade composition with shared SE blocks for PP-OCRv3
+  (`pytorchocr/modeling/necks/db_fpn.py`).
+- **PP-OCRv3 distillation prefix handling**: the idea of unwrapping
+  the multi-student DML checkpoint
+  (`converter/ch_ppocr_v3_det_converter.py`). Note that upstream
+  converts the ``Student2.*`` network; torchocr converts ``Student.*``,
+  which is byte-identical to the ``student.pdparams`` PaddleOCR ships
+  for inference and scores 0.422 vs 0.325 hmean on ICDAR-2015.
 - **Chinese charset file**: `src/torchocr/data/ppocr_keys_v1.txt`
   vendored verbatim from `pytorchocr/utils/ppocr_keys_v1.txt`.
 

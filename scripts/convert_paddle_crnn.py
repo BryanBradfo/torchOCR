@@ -31,6 +31,7 @@ from typing import Any
 import torch
 
 from torchocr.models import CRNN
+from torchocr.models.hub import zero_subnormals_
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +96,7 @@ def paddle_name_for(torch_name: str, stage_format: StageFormat = "prefixed") -> 
 
 
 def load_paddle_state(weights_path: Path) -> dict[str, Any]:
-    """Load a ``.pdparams`` Paddle checkpoint (Paddle 1.x or 2.x)."""
+    """Load a ``.pdparams`` Paddle checkpoint (Paddle >= 2.5)."""
     try:
         import paddle  # type: ignore[import-not-found]
     except ImportError as exc:
@@ -104,14 +105,9 @@ def load_paddle_state(weights_path: Path) -> dict[str, Any]:
             "Install conversion extras: pip install torchocr[convert]\n"
             f"  ({type(exc).__name__}: {exc})"
         )
-    try:
-        return paddle.load(str(weights_path))
-    except Exception:
-        import paddle.fluid as fluid  # type: ignore[import-not-found]
-
-        with fluid.dygraph.guard():
-            params, _ = fluid.load_dygraph(str(weights_path))
-        return params
+    if not weights_path.is_file():
+        sys.exit(f"ERROR: {weights_path} does not exist.")
+    return paddle.load(str(weights_path))
 
 
 # ---------------------------------------------------------------------------
@@ -178,6 +174,9 @@ def convert(weights_path: Path, output_path: Path, num_classes: int = 6625) -> N
         sys.exit(1)
 
     model.load_state_dict(torch_state, strict=True)
+    # Paddle's weight decay leaves dead channels at ~1e-40: exact zeros keep CPU inference fast.
+    print(f"Zeroed {zero_subnormals_(model)} subnormal values.")
+    torch_state = model.state_dict()
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(torch_state, output_path)
