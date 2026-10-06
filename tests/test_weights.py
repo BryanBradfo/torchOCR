@@ -202,3 +202,27 @@ def test_detection_weights_record_their_postprocessing(weights):
 
     processor = DBPostProcessor(**weights.meta["postprocess"])
     assert 0 < processor.box_thresh < 1
+
+
+def test_loaded_weights_have_no_subnormals(monkeypatch):
+    """Subnormals are numerically zero but make CPU inference ~14x slower."""
+    tiny = torch.finfo(torch.float32).tiny
+
+    def with_subnormals(url, **kwargs):
+        state = DBNet(backbone="resnet18_vd").state_dict()
+        state["binarize.conv1.weight"].view(-1)[:10] = tiny / 4
+        return state
+
+    monkeypatch.setattr(hub, "load_state_dict_from_url", with_subnormals)
+    model = DBNet(weights=DBNet_ResNet18_VD_Weights.DEFAULT)
+    weight = model.binarize.conv1.weight
+    assert (weight.view(-1)[:10] == 0).all()
+    assert not ((weight != 0) & (weight.abs() < tiny)).any()
+
+
+def test_zero_subnormals_reports_count():
+    module = nn.Linear(4, 4)
+    with torch.no_grad():
+        module.weight.view(-1)[:3] = torch.finfo(torch.float32).tiny / 2
+    assert hub.zero_subnormals_(module) == 3
+    assert hub.zero_subnormals_(module) == 0

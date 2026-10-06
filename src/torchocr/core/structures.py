@@ -35,16 +35,28 @@ class TextDetectionTarget:
 
 @dataclass
 class DocumentTensor:
-    """Container for OCR-ready document data."""
+    """Container for OCR-ready document data.
+
+    Attributes:
+        pixels: The input image, unmodified.
+        text: ``K`` recognized strings, one per region.
+        bounding_boxes: ``(K, 4)`` axis-aligned ``(x1, y1, x2, y2)`` boxes.
+        polygons: ``(K, 4, 2)`` rotated text quads in reading order
+            (top-left, top-right, bottom-right, bottom-left), when the
+            post-processor provides them.
+    """
 
     pixels: Tensor
     text: list[str] = field(default_factory=list)
     bounding_boxes: Tensor | None = None
+    polygons: Tensor | None = None
 
     def to(self, *args: object, **kwargs: object) -> "DocumentTensor":
         """Return a copy moved to the requested device/dtype."""
+        move = lambda t: t.to(*args, **kwargs) if t is not None else None  # noqa: E731
         return DocumentTensor(
             pixels=self.pixels.to(*args, **kwargs),
             text=list(self.text),
-            bounding_boxes=self.bounding_boxes.to(*args, **kwargs) if self.bounding_boxes is not None else None,
+            bounding_boxes=move(self.bounding_boxes),
+            polygons=move(self.polygons),
         )

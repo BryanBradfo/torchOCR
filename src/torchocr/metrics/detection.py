@@ -1,10 +1,13 @@
 """Text-detection metrics."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
 import shapely
 from torch import Tensor
+
+from .recognition import normalize_text
 
 
 @dataclass(frozen=True)
@@ -76,6 +79,15 @@ class DetectionHmean:
             ignore: Optional ``(M,)`` bool mask over ``targets`` marking
                 don't-care regions. Default: nothing ignored.
         """
+        pairs, gt_care, pred_care = self._match(preds, targets, ignore)
+        self._matched += len(pairs)
+        self._gt_care += gt_care
+        self._pred_care += pred_care
+
+    def _match(
+        self, preds: Tensor, targets: Tensor, ignore: Tensor | None
+    ) -> tuple[list[tuple[int, int]], int, int]:
+        """Return matched ``(target_index, pred_index)`` pairs and the care counts."""
         pred_polys = _to_polygons(preds, "preds")
         gt_polys = _to_polygons(targets, "targets")
         if ignore is None:
@@ -87,9 +99,10 @@ class DetectionHmean:
                     f"ignore has {gt_ignore.shape[0]} entries but targets has {len(gt_polys)} regions."
                 )
 
-        gt_valid = shapely.is_valid(gt_polys)
-        gt_polys, gt_ignore = gt_polys[gt_valid], gt_ignore[gt_valid]
-        pred_polys = pred_polys[shapely.is_valid(pred_polys)]
+        gt_index = np.flatnonzero(shapely.is_valid(gt_polys))
+        pred_index = np.flatnonzero(shapely.is_valid(pred_polys))
+        gt_polys, gt_ignore = gt_polys[gt_index], gt_ignore[gt_index]
+        pred_polys = pred_polys[pred_index]
 
         pred_ignore = np.zeros(len(pred_polys), dtype=bool)
         if gt_ignore.any() and len(pred_polys):
@@ -100,7 +113,7 @@ class DetectionHmean:
                 fraction = np.where(pred_area > 0, overlap / pred_area, 0.0)
             pred_ignore = (fraction > self.ignore_threshold).any(axis=1)
 
-        matched = 0
+        pairs: list[tuple[int, int]] = []
         if len(gt_polys) and len(pred_polys):
             inter = shapely.area(shapely.intersection(gt_polys[:, None], pred_polys[None, :]))
             union = shapely.area(shapely.union(gt_polys[:, None], pred_polys[None, :]))
@@ -112,12 +125,9 @@ class DetectionHmean:
             for g in np.flatnonzero(~gt_ignore):
                 for p in np.flatnonzero(~pred_taken & (iou[g] > self.iou_threshold)):
                     pred_taken[p] = True
-                    matched += 1
+                    pairs.append((int(gt_index[g]), int(pred_index[p])))
                     break
-
-        self._matched += matched
-        self._gt_care += int((~gt_ignore).sum())
-        self._pred_care += int((~pred_ignore).sum())
+        return pairs, int((~gt_ignore).sum()), int((~pred_ignore).sum())
 
     def compute(self) -> HmeanResult:
         recall = self._matched / self._gt_care if self._gt_care else 0.0
@@ -148,3 +158,51 @@ def _to_polygons(regions: Tensor, name: str) -> np.ndarray:
     if coords.shape[0] == 0:
         return np.empty(0, dtype=object)
     return shapely.polygons(coords)
+
+
+class EndToEndHmean(DetectionHmean):
+    """End-to-end text spotting hmean: a detection counts only if it is also read correctly.
+
+    Regions are matched exactly as in :class:`DetectionHmean`; a matched pair
+    is a true positive only when the normalized transcriptions are equal.
+    This follows the ICDAR-2015 end-to-end task with a generic vocabulary
+    (no lexicon), simplified: text equality uses
+    :class:`~torchocr.metrics.RecognitionAccuracy`'s normalization instead of
+    the official script's special-character rules.
+
+    Args:
+        iou_threshold, ignore_threshold: As in :class:`DetectionHmean`.
+        case_sensitive, alphanumeric_only: Text normalization before
+            comparison. Defaults follow the scene-text convention
+            (case-insensitive, letters and digits only).
+    """
+
+    def __init__(
+        self,
+        iou_threshold: float = 0.5,
+        ignore_threshold: float = 0.5,
+        case_sensitive: bool = False,
+        alphanumeric_only: bool = True,
+    ) -> None:
+        super().__init__(iou_threshold, ignore_threshold)
+        self.case_sensitive = case_sensitive
+        self.alphanumeric_only = alphanumeric_only
+
+    def update(  # type: ignore[override]
+        self,
+        preds: Tensor,
+        targets: Tensor,
+        ignore: Tensor | None,
+        pred_texts: Sequence[str],
+        target_texts: Sequence[str],
+    ) -> None:
+        """Accumulate one image; ``pred_texts`` / ``target_texts`` align with the regions."""
+        if len(pred_texts) != preds.shape[0]:
+            raise ValueError(f"pred_texts has {len(pred_texts)} entries for {preds.shape[0]} predictions.")
+        if len(target_texts) != targets.shape[0]:
+            raise ValueError(f"target_texts has {len(target_texts)} entries for {targets.shape[0]} targets.")
+        pairs, gt_care, pred_care = self._match(preds, targets, ignore)
+        norm = lambda t: normalize_text(t, self.case_sensitive, self.alphanumeric_only)  # noqa: E731
+        self._matched += sum(norm(pred_texts[p]) == norm(target_texts[g]) for g, p in pairs)
+        self._gt_care += gt_care
+        self._pred_care += pred_care

@@ -36,6 +36,29 @@ Requires Python 3.10+, PyTorch 2.0+, and torchvision.
 
 ## Quickstart
 
+### Image to text in three lines
+
+```python
+from torchocr import OCRPipeline, load_image
+
+pipeline = OCRPipeline.from_pretrained(
+    detector_weights="DBNet_MobileNetV3_Large_05_Weights.ICDAR2015",   # scene text, English
+    recognizer_weights="CRNN_ResNet34_VD_Weights.PPOCR_SERVER_V2",
+    device="cuda",                                                      # or "cpu" (~4 s/page)
+)
+doc = pipeline(load_image("photo.jpg"))
+doc.text        # list[str], one per region
+doc.polygons    # (K, 4, 2) rotated quads, reading order, in input pixels
+```
+
+Each stage brings its own preprocessing (`weights.transforms()`), post-processing
+(`weights.meta["postprocess"]`) and charset (`weights.meta["charset"]`); words are rectified
+out of the original-resolution image with `torchocr.ops.crop_quads`. The defaults
+(`from_pretrained()` with no arguments) pair the multilingual PP-OCRv3 detector with the
+Chinese + English recognizer, suited to documents.
+
+### Building blocks
+
 ```python
 import torch
 from torchocr.models import DBNet, CRNN
@@ -115,7 +138,7 @@ Mismatched inputs raise `ValueError` with the offending shape — a debugging ai
 | `torchocr.metrics` (ICDAR hmean, word accuracy / CER) and `torchocr.datasets.ICDAR2015` | ✅ Implemented |
 | DB training (`references/detection/train.py`) | ✅ Implemented |
 | CTC greedy decoding | ✅ Implemented |
-| End-to-end `OCRPipeline` with pretrained weights | 🚧 In progress |
+| End-to-end `OCRPipeline.from_pretrained` (image → text) | ✅ Implemented |
 | CTC beam decoding | 📋 Planned |
 
 Benchmarks (ICDAR-2015 test, official IoU protocol, reproducible with `references/`):
@@ -124,6 +147,10 @@ Benchmarks (ICDAR-2015 test, official IoU protocol, reproducible with `reference
 | --- | --- |
 | `DBNet_MobileNetV3_Large_05_Weights.ICDAR2015` (trained by torchocr, 0.6 M params) | **0.734** |
 | `DBNet_MobileNetV3_Large_05_Weights.PPOCR_V3_EN` (converted, line-level) | 0.441 |
+
+End-to-end (`OCRPipeline`, image → text, word counted when detected *and* read correctly,
+case-insensitive, generic vocabulary; `references/end2end/evaluate.py`): **0.472** hmean with
+`ICDAR2015` + `CRNN_ResNet34_VD_Weights.PPOCR_SERVER_V2`, 27 ms/image on a laptop GPU.
 
 `weights.meta` documents each checkpoint's provenance, license, preprocessing and known limits.
 
