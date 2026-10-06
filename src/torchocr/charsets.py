@@ -49,3 +49,19 @@ def load_ppocr_keys_v1(num_classes: int) -> list[str]:
     while len(full) < num_classes:
         full.append(BLANK_TOKEN)
     return full
+
+
+_LOADERS = {"ppocr_keys_v1": load_ppocr_keys_v1}
+
+
+def load_charset(name: str, num_classes: int) -> list[str]:
+    """Load a bundled charset by the name stored in ``weights.meta["charset"]``.
+
+    Example::
+
+        weights = CRNN_ResNet34_VD_Weights.DEFAULT
+        charset = load_charset(weights.meta["charset"], weights.meta["num_classes"])
+    """
+    if name not in _LOADERS:
+        raise ValueError(f"Unknown charset '{name}'. Available: {sorted(_LOADERS)}.")
+    return _LOADERS[name](num_classes)

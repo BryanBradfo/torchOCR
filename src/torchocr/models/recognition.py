@@ -23,7 +23,7 @@ class CRNN_ResNet34_VD_Weights(WeightsEnum):
             "backbone": "resnet34_vd",
             "num_params": 27_860_673,
             "num_classes": 6625,
-            "charset": "ppocr_keys_v1 (torchocr.load_ppocr_keys_v1(6625))",
+            "charset": "ppocr_keys_v1",  # torchocr.charsets.load_charset
             "source": "PaddleOCR ch_ppocr_server_v2.0_rec_train, via scripts/convert_paddle_crnn.py",
             "license": "Apache-2.0",
             "languages": ["ch", "en"],

@@ -23,7 +23,7 @@ import time
 import torch
 from torchvision.transforms.v2 import functional as F
 
-from torchocr import CTCGreedyDecoder, load_ppocr_keys_v1
+from torchocr import CTCGreedyDecoder, load_charset
 from torchocr.datasets import ICDAR2015
 from torchocr.metrics import RecognitionAccuracy
 from torchocr.models import CRNN, get_weight
@@ -48,7 +48,7 @@ def main() -> None:
     weights = get_weight(args.weights)
     model = CRNN(weights=weights).eval().to(device)
     preset = weights.transforms()
-    decoder = CTCGreedyDecoder(load_ppocr_keys_v1(weights.meta["num_classes"]))
+    decoder = CTCGreedyDecoder(load_charset(weights.meta["charset"], weights.meta["num_classes"]))
 
     dataset = ICDAR2015(args.root, split=args.split)
     num_images = min(len(dataset), args.limit or len(dataset))

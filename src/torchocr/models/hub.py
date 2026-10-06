@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, TypeVar
 
+import torch
 from torch import nn
 from torch.hub import HASH_REGEX, load_state_dict_from_url
 
@@ -38,6 +39,7 @@ __all__ = [
     "get_weight",
     "list_models",
     "register_model",
+    "zero_subnormals_",
 ]
 
 
@@ -117,6 +119,28 @@ def load_weights(model: nn.Module, weights: WeightsEnum, progress: bool = True) 
         )
         return
     model.load_state_dict(state_dict)
+    zero_subnormals_(model)
+
+
+@torch.no_grad()
+def zero_subnormals_(module: nn.Module) -> int:
+    """Replace subnormal floats in ``module``'s parameters and buffers by exact zeros, in place.
+
+    Weight decay drives dead channels to ~1e-40. Those values are numerically
+    zero but hit x86's slow subnormal path on every multiply, and oneDNN
+    convolutions ignore ``torch.set_flush_denormal``: PaddleOCR's CRNN runs
+    ~14x slower on CPU because of them. Outputs are unchanged.
+
+    Returns:
+        The number of values zeroed.
+    """
+    zeroed = 0
+    for tensor in module.state_dict().values():
+        if tensor.is_floating_point():
+            subnormal = (tensor != 0) & (tensor.abs() < torch.finfo(tensor.dtype).tiny)
+            zeroed += int(subnormal.sum())
+            tensor.masked_fill_(subnormal, 0)
+    return zeroed
 
 
 # === Registry ===

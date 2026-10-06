@@ -32,6 +32,7 @@ from typing import Any
 import torch
 
 from torchocr.models import DBNet
+from torchocr.models.hub import zero_subnormals_
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +190,9 @@ def convert(weights_path: Path, output_path: Path) -> None:
 
     # Verify the model accepts the new state cleanly before writing.
     model.load_state_dict(torch_state, strict=True)
+    # Paddle's weight decay leaves dead channels at ~1e-40: exact zeros keep CPU inference fast.
+    print(f"Zeroed {zero_subnormals_(model)} subnormal values.")
+    torch_state = model.state_dict()
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(torch_state, output_path)

@@ -147,3 +147,42 @@ def test_ignore_mask_length_must_match_ground_truth():
 def test_thresholds_are_validated(kwarg):
     with pytest.raises(ValueError, match=kwarg):
         DetectionHmean(**{kwarg: 1.5})
+
+
+# === End-to-end (detection + recognition) ===
+
+from torchocr.metrics import EndToEndHmean  # noqa: E402
+
+
+def test_end_to_end_counts_only_correctly_read_matches():
+    gt = _quads((0, 0, 10, 10), (20, 0, 30, 10))
+    metric = EndToEndHmean()
+    metric.update(gt.clone(), gt, None, ["Hello", "wrld"], ["hello!", "world"])
+    result = metric.compute()
+    # Both boxes match geometrically; only the first transcription is right
+    # (case and punctuation are ignored).
+    assert (result.num_matched, result.num_gt, result.num_pred) == (1, 2, 2)
+    assert result.hmean == pytest.approx(0.5)
+
+
+def test_end_to_end_keeps_detection_matching_semantics():
+    """A correct text on a box with IoU <= 0.5 does not count."""
+    metric = EndToEndHmean()
+    metric.update(_quads((0, 0, 10, 4)), _quads((0, 0, 10, 10)), None, ["abc"], ["abc"])
+    assert metric.compute().num_matched == 0
+
+
+def test_end_to_end_ignores_dont_care_regions():
+    gt = _quads((0, 0, 10, 10), (50, 50, 90, 70))
+    metric = EndToEndHmean()
+    metric.update(gt.clone(), gt, torch.tensor([False, True]), ["a", "zzz"], ["a", "###"])
+    result = metric.compute()
+    assert (result.num_matched, result.num_gt, result.num_pred) == (1, 1, 1)
+
+
+def test_end_to_end_text_lengths_are_checked():
+    gt = _quads((0, 0, 10, 10))
+    with pytest.raises(ValueError, match="pred_texts"):
+        EndToEndHmean().update(gt, gt, None, [], ["a"])
+    with pytest.raises(ValueError, match="target_texts"):
+        EndToEndHmean().update(gt, gt, None, ["a"], [])

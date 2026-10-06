@@ -114,11 +114,21 @@ class RecognitionPreset(nn.Module):
 
         h, w = crop.shape[-2:]
         width = min(self.max_width, max(16, round(self.height * w / max(h, 1))))
-        crop = F.resize(crop, [self.height, width], antialias=True)
-        if self.channel_order == "bgr":
-            crop = crop.flip(0)
-        crop = F.normalize(F.to_dtype(crop, torch.float32, scale=True), self.mean, self.std)
+        crop = self.normalize(F.resize(crop, [self.height, width], antialias=True))
         return torch.nn.functional.pad(crop, (0, self.max_width - width))
+
+    def normalize(self, image: Tensor) -> Tensor:
+        """The per-pixel part of the preset (channel order, scaling, mean/std), without resizing.
+
+        Because it is per-pixel it commutes with bilinear sampling: normalize a
+        whole ``(..., 3, H, W)`` ``uint8`` page once, then cut every word out of
+        it with :func:`torchocr.ops.crop_quads`.
+        """
+        if image.dtype != torch.uint8:
+            raise ValueError(f"Expected uint8 pixels; got {image.dtype}.")
+        if self.channel_order == "bgr":
+            image = image.flip(-3)
+        return F.normalize(F.to_dtype(image, torch.float32, scale=True), self.mean, self.std)
 
     def extra_repr(self) -> str:
         return (

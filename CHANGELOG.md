@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - All five checkpoints published at https://huggingface.co/BryanBradfo/torchocr-weights with a model card.
 - `references/detection/calibrate.py`: picks `box_thresh` by train-split hmean (one forward pass per image for all candidate thresholds) and scores the test split once with it.
 - Tests: `test_db_targets.py`, `test_detection_presets.py`.
+- `OCRPipeline.from_pretrained(detector_weights, recognizer_weights, device)`: assembles both models, their presets, `DBPostProcessor(**meta["postprocess"])` and the charset decoder from published weights. ICDAR-2015 end-to-end hmean 0.472 (`ICDAR2015` + `CRNN_ResNet34_VD_Weights.PPOCR_SERVER_V2`), 27 ms/image on GPU.
+- `OCRPipeline(detector_transforms=..., recognizer_transforms=...)`: per-stage presets; regions mapped back to input pixels; `DocumentTensor.polygons` exposes the rotated quads.
+- `torchocr.metrics.EndToEndHmean` (detection matching + transcription check) and `references/end2end/evaluate.py`.
+- `torchocr.load_charset(name, num_classes)`; `CRNN_ResNet34_VD_Weights.meta["charset"]` is now the machine-readable `"ppocr_keys_v1"`.
+- `RecognitionPreset.normalize()`: the per-pixel part of the preset, for normalizing a whole page before `crop_quads`.
+- `torchocr.models.hub.zero_subnormals_`, applied by every weights load, converter and training checkpoint. PaddleOCR's CRNN stores 6.3 M subnormal floats (dead channels) that made CPU inference ~14x slower (receipt: 54 s -> 3.9 s), with bit-identical outputs.
 - `MobileNetV3` backbone (`src/torchocr/models/backbones/mobilenet_v3.py`) matching PaddleOCR's `det_mobilenet_v3` structure: HardSwish/HardSigmoid activations, SE attention blocks, inverted-residual `_ResidualUnit` with 1x1 expand → depthwise k×k → optional SE → 1x1 project, `make_divisible` channel rounding. Supports `model_name ∈ {"large", "small"}`, `scale ∈ {0.35, 0.5, 0.75, 1.0, 1.25}`, optional `disable_se`.
 - `_RSEFPN` neck and `_RSELayer` (1x1/3x3 conv + SEModule + optional shortcut) in `src/torchocr/models/detection.py`. Replaces DBFPN's plain Conv2d layers with channel-attention-augmented variants. Default `out_channels=96` matches PP-OCRv3.
 - `DBNet(backbone="mobilenet_v3_large_05")` constructor option that wires MobileNetV3-large@0.5 (with `disable_se=True` per PaddleOCR) through RSEFPN(96) + DBHead. ~0.6M params total (vs ~12M for ResNet-18-VD).
@@ -67,6 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Paddle converters no longer fall back to the removed `paddle.fluid` API, which turned any load error (e.g. a wrong path) into `No module named 'paddle.fluid'`; a missing file now exits with a clear message.
 
 ### Changed
+- `OCRPipeline` crops regions with `torchocr.ops.crop_quads` (aspect-preserving, padded to `crop_size` width) instead of stretching axis-aligned `roi_align` crops; `crop_size` is now `(height, max_width)`.
 - **Breaking:** `DBNet(weights=...)` / `CRNN(weights=...)` take a `WeightsEnum` member or member name. `backbone` now defaults to `None` (inferred from an enum member, else `"resnet18"` / `"vgg"`); `CRNN.num_classes` is optional when weights are given and validated against them. Requesting weights for a backbone without published checkpoints (`resnet18`, `vgg`) raises `ValueError` instead of printing a warning, and `CRNN()` without `num_classes` raises `ValueError` instead of `TypeError`.
 - Download failures now emit a `UserWarning` (was `print`) and only connectivity errors (`OSError`) fall back to random init; hash mismatches and incompatible checkpoints raise.
 - `scripts/infer.py` builds randomly-initialized models explicitly (it previously requested non-existent `DEFAULT` weights); its docstring points to `scripts/test_full_ocr.py` for real OCR until `OCRPipeline` supports per-stage presets.

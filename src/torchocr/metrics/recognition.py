@@ -42,9 +42,7 @@ class RecognitionAccuracy:
         self._target_chars = 0
 
     def _normalize(self, text: str) -> str:
-        if self.alphanumeric_only:
-            text = "".join(c for c in text if c.isalnum())
-        return text if self.case_sensitive else text.lower()
+        return normalize_text(text, self.case_sensitive, self.alphanumeric_only)
 
     def update(self, preds: Sequence[str], targets: Sequence[str]) -> None:
         if len(preds) != len(targets):
@@ -62,6 +60,13 @@ class RecognitionAccuracy:
             char_error_rate=self._edits / self._target_chars if self._target_chars else 0.0,
             num_words=self._words,
         )
+
+
+def normalize_text(text: str, case_sensitive: bool = True, alphanumeric_only: bool = False) -> str:
+    """Optionally drop non-alphanumeric characters and lowercase ``text``."""
+    if alphanumeric_only:
+        text = "".join(c for c in text if c.isalnum())
+    return text if case_sensitive else text.lower()
 
 
 def _edit_distance(a: str, b: str) -> int:

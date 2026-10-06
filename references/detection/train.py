@@ -26,6 +26,7 @@ from torchocr import DBLoss, DBPostProcessor
 from torchocr.datasets import ICDAR2015
 from torchocr.models import DBNet, get_weight
 from torchocr.models.detection import DBNetOutput
+from torchocr.models.hub import zero_subnormals_
 from torchocr.transforms import DBTargets, DetectionPreset
 
 
@@ -142,6 +143,7 @@ def main() -> None:
         summary = {name: round(total / len(loader), 4) for name, total in running.items()}
         print(json.dumps({"epoch": epoch, "step": step, "lr": round(scheduler.get_last_lr()[0], 6),
                           "epoch_seconds": round(time.perf_counter() - start, 1), **summary}), flush=True)
+        zero_subnormals_(model)  # weight decay drifts dead channels into slow subnormals
         torch.save(model.state_dict(), args.output / "last.pth")
         if epoch % args.eval_every == 0 or epoch == args.epochs:
             evaluate(epoch)
