@@ -8,6 +8,7 @@ from shapely.geometry import Polygon
 from torch import Tensor
 
 from .models.detection import DBNetOutput
+from .ops import order_quad_vertices
 
 
 class DBPostProcessor:
@@ -21,10 +22,9 @@ class DBPostProcessor:
     refit the rectangle. Boxes whose score is below ``box_thresh`` or
     whose minor side is below ``min_size`` are discarded.
 
-    For v0.1 API compatibility the rotated rectangles are projected
-    to axis-aligned ``(x1, y1, x2, y2)`` boxes before returning. A
-    rotated-box output (``DocumentTensor.rotated_boxes``) is planned
-    for a future minor version.
+    Calling the processor projects the rotated rectangles to
+    axis-aligned ``(x1, y1, x2, y2)`` boxes (the v0.1 contract);
+    :meth:`quadrilaterals` returns the rotated quads themselves.
 
     The output is shaped ``(K, 5)`` with columns
     ``[batch_idx, x1, y1, x2, y2]`` so it composes directly with
@@ -79,6 +79,27 @@ class DBPostProcessor:
         self.min_size = min_size
 
     def __call__(self, output: DBNetOutput) -> Tensor:
+        """Return ``(K, 5)`` ``[batch_idx, x1, y1, x2, y2]`` axis-aligned boxes."""
+        device = output.probability.device
+        rows = [
+            torch.cat([torch.full((quads.shape[0], 1), float(batch_idx)), quads.amin(1), quads.amax(1)], dim=1)
+            for batch_idx, quads in enumerate(self._quadrilaterals_cpu(output))
+        ]
+        return torch.cat(rows).to(device) if rows else torch.zeros((0, 5), device=device)
+
+    def quadrilaterals(self, output: DBNetOutput) -> list[Tensor]:
+        """Return one ``(N_b, 4, 2)`` tensor of rotated text quads per image.
+
+        Vertices are ``(x, y)`` input-pixel coordinates clipped to the
+        page, in reading order (top-left, top-right, bottom-right,
+        bottom-left) so they feed :func:`torchocr.ops.crop_quads`. Unlike
+        :meth:`__call__`, the rotation of each region is preserved, which
+        is what polygon-based benchmarks such as ICDAR-2015 score.
+        """
+        device = output.probability.device
+        return [order_quad_vertices(quads).to(device) for quads in self._quadrilaterals_cpu(output)]
+
+    def _quadrilaterals_cpu(self, output: DBNetOutput) -> list[Tensor]:
         probability = output.probability
         if probability.ndim != 4 or probability.shape[1] != 1:
             raise ValueError(
@@ -86,11 +107,12 @@ class DBPostProcessor:
             )
 
         prob_np = probability[:, 0].detach().cpu().numpy()
-        rows: list[list[float]] = []
-        for batch_idx in range(prob_np.shape[0]):
-            page = prob_np[batch_idx]
+        per_image: list[Tensor] = []
+        for page in prob_np:
+            h, w = page.shape
             mask = (page > self.threshold).astype(np.uint8) * 255
             contours, _ = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+            quads: list[np.ndarray] = []
             for contour in contours[: self.max_candidates]:
                 box = self._rotated_box(contour)
                 if box is None:
@@ -104,12 +126,13 @@ class DBPostProcessor:
                 refit = self._rotated_box(expanded)
                 if refit is None:
                     continue
-                x1, y1, x2, y2 = self._axis_aligned(refit, page.shape)
-                rows.append([float(batch_idx), x1, y1, x2, y2])
-
-        if not rows:
-            return torch.zeros((0, 5), dtype=torch.float32, device=probability.device)
-        return torch.tensor(rows, dtype=torch.float32, device=probability.device)
+                refit[:, 0] = np.clip(refit[:, 0], 0, w - 1)
+                refit[:, 1] = np.clip(refit[:, 1], 0, h - 1)
+                quads.append(refit)
+            per_image.append(
+                torch.from_numpy(np.stack(quads)) if quads else torch.zeros((0, 4, 2))
+            )
+        return per_image
 
     def _rotated_box(self, contour: np.ndarray) -> np.ndarray | None:
         """Fit a 4-point rotated rectangle to ``contour`` if it is large enough."""
@@ -147,16 +170,3 @@ class DBPostProcessor:
         if not expanded:
             return None
         return np.array(expanded[0], dtype=np.float32).reshape(-1, 1, 2)
-
-    def _axis_aligned(
-        self, box: np.ndarray, page_shape: tuple[int, int]
-    ) -> tuple[float, float, float, float]:
-        """Project a 4-point rotated box onto an axis-aligned bbox clipped to the page."""
-        h, w = page_shape
-        xs = box[:, 0]
-        ys = box[:, 1]
-        x1 = float(np.clip(xs.min(), 0, w - 1))
-        x2 = float(np.clip(xs.max(), 0, w - 1))
-        y1 = float(np.clip(ys.min(), 0, h - 1))
-        y2 = float(np.clip(ys.max(), 0, h - 1))
-        return x1, y1, x2, y2

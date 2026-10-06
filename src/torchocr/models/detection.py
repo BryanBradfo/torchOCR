@@ -1,6 +1,7 @@
 """Text detection model definitions."""
 
 from dataclasses import dataclass
+from functools import partial
 from typing import Literal
 
 import torch
@@ -9,8 +10,10 @@ from torch.nn import functional as F
 from torchvision.models import ResNet18_Weights, resnet18
 from torchvision.models.feature_extraction import create_feature_extractor
 
-from .backbones import ResNetVd
-from .hub import load_pretrained_state_dict
+from ..transforms import DetectionPreset
+from .backbones import MobileNetV3, ResNetVd
+from .backbones.mobilenet_v3 import _SEModule
+from .hub import BASE_URL, Weights, WeightsEnum, load_weights, register_model
 
 
 _BACKBONE_TAPS = {"layer1": "c2", "layer2": "c3", "layer3": "c4", "layer4": "c5"}
@@ -99,6 +102,72 @@ class _DBFPN(nn.Module):
         return torch.cat([p5, p4, p3, p2], dim=1)
 
 
+class _RSELayer(nn.Module):
+    """1x1 (or 3x3) conv -> SE block, with optional shortcut.
+
+    Used by :class:`_RSEFPN` to inject channel attention at every FPN
+    convolution. Submodule names match PaddleOCR (``in_conv``,
+    ``se_block``).
+    """
+
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, shortcut: bool = True) -> None:
+        super().__init__()
+        self.in_conv = nn.Conv2d(
+            in_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            padding=kernel_size // 2,
+            bias=False,
+        )
+        self.se_block = _SEModule(out_channels)
+        self.shortcut = shortcut
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.in_conv(x)
+        return x + self.se_block(x) if self.shortcut else self.se_block(x)
+
+
+class _RSEFPN(nn.Module):
+    """PP-OCRv3 RSEFPN: DBFPN cascade with SE attention at every conv.
+
+    Same top-down + concat structure as :class:`_DBFPN` but every
+    1x1 lateral and 3x3 smooth conv is replaced by an :class:`_RSELayer`.
+    Default ``out_channels`` is 96, the value PP-OCRv3 ships with.
+    """
+
+    def __init__(self, in_channels: tuple[int, ...], out_channels: int = 96, shortcut: bool = True) -> None:
+        super().__init__()
+        if len(in_channels) != 4:
+            raise ValueError(f"RSEFPN expects 4 input scales; got {len(in_channels)}.")
+        smooth = out_channels // 4
+        # PaddleOCR stores the 4 scales as ModuleLists indexed c2..c5 (i=0..3).
+        self.ins_conv = nn.ModuleList(
+            _RSELayer(in_channels[i], out_channels, kernel_size=1, shortcut=shortcut)
+            for i in range(4)
+        )
+        self.inp_conv = nn.ModuleList(
+            _RSELayer(out_channels, smooth, kernel_size=3, shortcut=shortcut)
+            for _ in range(4)
+        )
+
+    def forward(self, features: dict[str, Tensor]) -> Tensor:
+        c2, c3, c4, c5 = (features[name] for name in _BACKBONE_KEYS)
+        in5 = self.ins_conv[3](c5)
+        in4 = self.ins_conv[2](c4)
+        in3 = self.ins_conv[1](c3)
+        in2 = self.ins_conv[0](c2)
+
+        out4 = in4 + F.interpolate(in5, scale_factor=2.0, mode="nearest")
+        out3 = in3 + F.interpolate(out4, scale_factor=2.0, mode="nearest")
+        out2 = in2 + F.interpolate(out3, scale_factor=2.0, mode="nearest")
+
+        p5 = F.interpolate(self.inp_conv[3](in5), scale_factor=8.0, mode="nearest")
+        p4 = F.interpolate(self.inp_conv[2](out4), scale_factor=4.0, mode="nearest")
+        p3 = F.interpolate(self.inp_conv[1](out3), scale_factor=2.0, mode="nearest")
+        p2 = self.inp_conv[0](out2)
+        return torch.cat([p5, p4, p3, p2], dim=1)
+
+
 class _DBHead(nn.Module):
     """One head (binarize or threshold) of a DBNet.
 
@@ -126,7 +195,112 @@ class _DBHead(nn.Module):
         return torch.sigmoid(self.conv3(x))
 
 
-BackboneName = Literal["resnet18", "resnet18_vd"]
+BackboneName = Literal["resnet18", "resnet18_vd", "mobilenet_v3_large_05"]
+
+
+# PaddleOCR detectors saw cv2-decoded BGR pixels normalized with RGB-ordered
+# ImageNet statistics; on ICDAR-2015 "bgr" beats "rgb" for every checkpoint.
+_PADDLE_DET_PRESET = partial(DetectionPreset, max_side=960, channel_order="bgr")
+
+# PaddleOCR's DB post-processing defaults, under which the converted checkpoints were scored.
+_PADDLE_DB_POSTPROCESS = {"threshold": 0.3, "box_thresh": 0.6, "unclip_ratio": 1.5}
+
+_ICDAR2015_PROTOCOL = (
+    "ICDAR-2015 test (500 images, 2077 care words), official IoU protocol on rotated quads; "
+    "transforms() preset, DBPostProcessor(**meta['postprocess']). "
+    "Reproduce with references/detection/evaluate.py --weights <this enum>."
+)
+_LINE_LEVEL_CAVEAT = (
+    "Trained by PaddleOCR on line-level annotations of mostly Chinese/English document and "
+    "scene text, then converted to PyTorch. ICDAR-2015 scores *word* boxes in low-resolution "
+    "street scenes, so adjacent words merged into one line count as misses; use this number "
+    "to compare checkpoints, not as the accuracy you will see on documents."
+)
+
+
+class DBNet_ResNet18_VD_Weights(WeightsEnum):
+    PPOCR_SERVER_V2 = Weights(
+        url=f"{BASE_URL}/dbnet_resnet18_vd_ppocr_server_v2-59d99b11.pth",
+        transforms=_PADDLE_DET_PRESET,
+        meta={
+            "task": "detection",
+            "backbone": "resnet18_vd",
+            "num_params": 12_364_386,
+            "source": "PaddleOCR ch_ppocr_server_v2.0_det_train, via scripts/convert_paddle_dbnet.py",
+            "license": "Apache-2.0",
+            "languages": ["ch", "en"],
+            "postprocess": _PADDLE_DB_POSTPROCESS,
+            "_metrics": {"ICDAR2015-test": {"precision": 0.5814, "recall": 0.3216, "hmean": 0.4141}},
+            "_docs": f"{_LINE_LEVEL_CAVEAT} {_ICDAR2015_PROTOCOL}",
+        },
+    )
+    DEFAULT = PPOCR_SERVER_V2
+
+
+class DBNet_MobileNetV3_Large_05_Weights(WeightsEnum):
+    PPOCR_V3_CH = Weights(
+        url=f"{BASE_URL}/dbnet_mobilenet_v3_large_05_ppocr_v3_ch-fc000d1e.pth",
+        transforms=_PADDLE_DET_PRESET,
+        meta={
+            "task": "detection",
+            "backbone": "mobilenet_v3_large_05",
+            "num_params": 603_418,
+            "source": "PaddleOCR ch_PP-OCRv3_det_distill_train (Student), via scripts/convert_paddle_dbnet_v3.py",
+            "license": "Apache-2.0",
+            "languages": ["ch", "en"],
+            "postprocess": _PADDLE_DB_POSTPROCESS,
+            "_metrics": {"ICDAR2015-test": {"precision": 0.5641, "recall": 0.3370, "hmean": 0.4219}},
+            "_docs": f"{_LINE_LEVEL_CAVEAT} {_ICDAR2015_PROTOCOL}",
+        },
+    )
+    PPOCR_V3_EN = Weights(
+        url=f"{BASE_URL}/dbnet_mobilenet_v3_large_05_ppocr_v3_en-9bfd3b59.pth",
+        transforms=_PADDLE_DET_PRESET,
+        meta={
+            "task": "detection",
+            "backbone": "mobilenet_v3_large_05",
+            "num_params": 603_418,
+            "source": "PaddleOCR en_PP-OCRv3_det_distill_train (Student), via scripts/convert_paddle_dbnet_v3.py",
+            "license": "Apache-2.0",
+            "languages": ["en"],
+            "postprocess": _PADDLE_DB_POSTPROCESS,
+            "_metrics": {"ICDAR2015-test": {"precision": 0.5342, "recall": 0.3755, "hmean": 0.4411}},
+            "_docs": f"{_LINE_LEVEL_CAVEAT} {_ICDAR2015_PROTOCOL}",
+        },
+    )
+    ICDAR2015 = Weights(
+        url=f"{BASE_URL}/dbnet_mobilenet_v3_large_05_ic15-d9d17ae7.pth",
+        # Trained and scored at PaddleOCR's ICDAR-2015 test size (736 x 1280).
+        transforms=partial(DetectionPreset, max_side=1280, channel_order="bgr"),
+        meta={
+            "task": "detection",
+            "backbone": "mobilenet_v3_large_05",
+            "num_params": 603_418,
+            "source": (
+                "torchocr: PPOCR_V3_EN fine-tuned 300 epochs on the 1000 ICDAR-2015 training images "
+                "with references/detection/train.py"
+            ),
+            "license": "Apache-2.0 (base weights); fine-tuned on ICDAR 2015, released for research use",
+            "languages": ["en"],
+            "postprocess": {"threshold": 0.3, "box_thresh": 0.45, "unclip_ratio": 1.5},
+            "_metrics": {"ICDAR2015-test": {"precision": 0.7845, "recall": 0.6890, "hmean": 0.7337}},
+            "_docs": (
+                "Word-level detector for incidental scene text (street-level photos, Latin script). "
+                "box_thresh=0.45 maximizes hmean on the *training* split "
+                "(references/detection/calibrate.py) and was applied once to the test split; with "
+                "PaddleOCR's box_thresh=0.6 this checkpoint scores 0.688. Weights are the last "
+                "epoch -- no checkpoint was selected on the test set. Expect lower recall on dense "
+                f"documents and on non-Latin scripts. {_ICDAR2015_PROTOCOL}"
+            ),
+        },
+    )
+    DEFAULT = PPOCR_V3_CH
+
+
+_WEIGHTS_BY_BACKBONE: dict[str, type[WeightsEnum]] = {
+    "resnet18_vd": DBNet_ResNet18_VD_Weights,
+    "mobilenet_v3_large_05": DBNet_MobileNetV3_Large_05_Weights,
+}
 
 
 class DBNet(nn.Module):
@@ -138,26 +312,24 @@ class DBNet(nn.Module):
     module.
 
     Args:
-        backbone: Which backbone to instantiate. ``"resnet18"`` (default)
-            uses torchvision's ResNet-18 with its 7x7 stem and is what
-            torchocr trains from scratch. ``"resnet18_vd"`` uses the
-            PaddleOCR-compatible ResNet-18-VD with a 3-conv stem and
-            avg-pool shortcuts on stride-2 blocks; its parameter shapes
-            and naming are aligned with PaddleOCR weights so the
-            ``scripts/convert_paddle_dbnet.py`` build-time converter
-            can produce drop-in checkpoints.
-        weights: Optional named preset of pretrained OCR weights. Pass
-            ``"DEFAULT"`` to download torchocr's published checkpoint
-            for the chosen backbone from the model hub. If the download
-            fails (e.g. the file is not yet published) a warning is
-            printed and the model is left initialized from architecture
-            defaults -- ``pretrained_backbone`` is the right knob to
-            combine with ``weights="DEFAULT"`` so the ResNet-18 backbone
-            keeps ImageNet weights when the OCR checkpoint is
-            unavailable. Default ``None`` (random init).
-            ``pretrained_backbone`` is ignored for ``backbone="resnet18_vd"``
-            since no canonical ImageNet ResNet-VD-18 weights ship with
-            torchvision; use ``weights="DEFAULT"`` instead.
+        backbone: Which backbone to instantiate. ``"resnet18"`` uses
+            torchvision's ResNet-18 with its 7x7 stem and is what
+            torchocr trains from scratch (no published OCR weights).
+            ``"resnet18_vd"`` and ``"mobilenet_v3_large_05"`` mirror
+            PaddleOCR's detectors so converted checkpoints load as-is.
+            Default ``None``: taken from ``weights`` when it is an enum
+            member, else ``"resnet18"``.
+        weights: Pretrained OCR weights -- a member of
+            :class:`DBNet_ResNet18_VD_Weights` or
+            :class:`DBNet_MobileNetV3_Large_05_Weights`, or a member name
+            such as ``"DEFAULT"`` resolved against ``backbone``. If the
+            download fails a ``UserWarning`` is emitted and the model
+            keeps its random initialization. Pair with
+            ``weights.transforms()`` for the matching preprocessing.
+            Default ``None`` (random init).
+            ``pretrained_backbone`` is ignored for the PaddleOCR-style
+            backbones since no canonical ImageNet weights ship with
+            torchvision for them.
         pretrained_backbone: If True and ``backbone="resnet18"``, load
             ImageNet weights for the torchvision ResNet-18 backbone.
             Default False to keep instantiation offline-safe.
@@ -176,13 +348,22 @@ class DBNet(nn.Module):
 
     def __init__(
         self,
-        backbone: BackboneName = "resnet18",
-        weights: str | None = None,
+        backbone: BackboneName | None = None,
+        weights: WeightsEnum | str | None = None,
         pretrained_backbone: bool = False,
         fpn_out_channels: int = 256,
         head_inner_channels: int = 64,
     ) -> None:
         super().__init__()
+        if backbone is None:
+            backbone = weights.meta["backbone"] if isinstance(weights, WeightsEnum) else "resnet18"
+        if weights is not None:
+            if backbone not in _WEIGHTS_BY_BACKBONE:
+                raise ValueError(
+                    f"No pretrained weights are published for backbone '{backbone}'. "
+                    f"Backbones with weights: {sorted(_WEIGHTS_BY_BACKBONE)}."
+                )
+            weights = _WEIGHTS_BY_BACKBONE[backbone].verify(weights)
         self.backbone_name = backbone
 
         if backbone == "resnet18":
@@ -214,16 +395,23 @@ class DBNet(nn.Module):
             self.fpn = _DBFPN(self.backbone.out_channels, fpn_out_channels)
             self.binarize = _DBHead(fpn_out_channels)
             self.thresh = _DBHead(fpn_out_channels)
+        elif backbone == "mobilenet_v3_large_05":
+            # PP-OCRv3 detector: MobileNetV3-large scale=0.5 with SE *disabled*
+            # in the backbone (SE only lives in the RSEFPN). Default neck width
+            # is 96 for v3 instead of the 256 used by the ResNet-VD detector.
+            self.backbone = MobileNetV3(model_name="large", scale=0.5, disable_se=True)
+            v3_fpn_channels = 96 if fpn_out_channels == 256 else fpn_out_channels
+            self.fpn = _RSEFPN(self.backbone.out_channels, out_channels=v3_fpn_channels)
+            self.binarize = _DBHead(v3_fpn_channels)
+            self.thresh = _DBHead(v3_fpn_channels)
         else:
             raise ValueError(
-                f"Unknown backbone '{backbone}'. Known: 'resnet18', 'resnet18_vd'."
+                f"Unknown backbone '{backbone}'. "
+                "Known: 'resnet18', 'resnet18_vd', 'mobilenet_v3_large_05'."
             )
 
         if weights is not None:
-            registry_key = "dbnet_resnet18_vd" if backbone == "resnet18_vd" else "dbnet"
-            state_dict = load_pretrained_state_dict(registry_key, weights)
-            if state_dict is not None:
-                self.load_state_dict(state_dict)
+            load_weights(self, weights)
 
     @staticmethod
     def _make_legacy_head(in_channels: int, inner_channels: int) -> nn.Sequential:
@@ -259,8 +447,30 @@ class DBNet(nn.Module):
                 threshold=self.threshold_head(fused),
             )
 
+        # ResNet-VD and MobileNetV3 paths share the same forward shape:
+        # backbone -> FPN/RSEFPN (single fused tensor) -> two DBHead modules.
         fused = self.fpn(feature_maps)
         return DBNetOutput(
             probability=self.binarize(fused),
             threshold=self.thresh(fused),
         )
+
+
+@register_model("dbnet_resnet18")
+def dbnet_resnet18(**kwargs: object) -> DBNet:
+    """DBNet with torchvision's ResNet-18 backbone (no published OCR weights)."""
+    return DBNet(backbone="resnet18", **kwargs)
+
+
+@register_model("dbnet_resnet18_vd", weights=DBNet_ResNet18_VD_Weights)
+def dbnet_resnet18_vd(*, weights: DBNet_ResNet18_VD_Weights | str | None = None, **kwargs: object) -> DBNet:
+    """DBNet with PaddleOCR's ResNet-18-VD backbone; see :class:`DBNet_ResNet18_VD_Weights`."""
+    return DBNet(backbone="resnet18_vd", weights=weights, **kwargs)
+
+
+@register_model("dbnet_mobilenet_v3_large_05", weights=DBNet_MobileNetV3_Large_05_Weights)
+def dbnet_mobilenet_v3_large_05(
+    *, weights: DBNet_MobileNetV3_Large_05_Weights | str | None = None, **kwargs: object
+) -> DBNet:
+    """PP-OCRv3 detector (MobileNetV3-large x0.5 + RSEFPN); see :class:`DBNet_MobileNetV3_Large_05_Weights`."""
+    return DBNet(backbone="mobilenet_v3_large_05", weights=weights, **kwargs)

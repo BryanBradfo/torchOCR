@@ -253,7 +253,8 @@ desktop.ini
 # Upstream Paddle weights (file extensions and known directory names).
 # Paddle's training-checkpoint directories contain ~200MB of .pdparams/.pdopt
 # blobs that must never enter Git. Belt-and-suspenders: extension rules above
-# catch the files, this rule catches the entire downloaded directory.
+# catch the files, these rules catch the entire downloaded directories
+# (PaddleOCR uses both lowercase 'ppocr' and capitalized 'PP-OCRv3' naming).
 *.tar
 *.pdparams
 *.pdopt
@@ -261,3 +262,11 @@ desktop.ini
 ch_ppocr_*/
 en_ppocr_*/
 multilingual_ppocr_*/
+ch_PP-OCR*/
+en_PP-OCR*/
+multilingual_PP-OCR*/
+*_det_train/
+*_rec_train/
+*_det_infer/
+*_rec_infer/
+*_distill_train/
