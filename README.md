@@ -42,8 +42,8 @@ Requires Python 3.10+, PyTorch 2.0+, and torchvision.
 from torchocr import OCRPipeline, load_image
 
 pipeline = OCRPipeline.from_pretrained(
-    detector_weights="DBNet_MobileNetV3_Large_05_Weights.ICDAR2015",   # scene text, English
-    recognizer_weights="CRNN_ResNet34_VD_Weights.PPOCR_SERVER_V2",
+    detector_weights="DBNet_ResNet18_VD_Weights.ICDAR2015",           # scene text, English
+    recognizer_weights="CRNN_ResNet34_VD_Weights.ICDAR2015",
     device="cuda",                                                      # or "cpu" (~4 s/page)
 )
 doc = pipeline(load_image("photo.jpg"))
@@ -145,12 +145,14 @@ Benchmarks (ICDAR-2015 test, official IoU protocol, reproducible with `reference
 
 | Weights | hmean |
 | --- | --- |
-| `DBNet_MobileNetV3_Large_05_Weights.ICDAR2015` (trained by torchocr, 0.6 M params) | **0.734** |
+| `DBNet_ResNet18_VD_Weights.ICDAR2015` (trained by torchocr, 12.4 M params) | **0.809** |
+| `DBNet_MobileNetV3_Large_05_Weights.ICDAR2015` (trained by torchocr, 0.6 M params) | 0.734 |
 | `DBNet_MobileNetV3_Large_05_Weights.PPOCR_V3_EN` (converted, line-level) | 0.441 |
 
 End-to-end (`OCRPipeline`, image → text, word counted when detected *and* read correctly,
-case-insensitive, generic vocabulary; `references/end2end/evaluate.py`): **0.472** hmean with
-`ICDAR2015` + `CRNN_ResNet34_VD_Weights.PPOCR_SERVER_V2`, 27 ms/image on a laptop GPU.
+case-insensitive, generic vocabulary; `references/end2end/evaluate.py`): **0.578** hmean with
+`DBNet_ResNet18_VD_Weights.ICDAR2015` + `CRNN_ResNet34_VD_Weights.ICDAR2015`, 56 ms/image on a
+laptop GPU (0.219 with the converted PaddleOCR weights).
 
 `weights.meta` documents each checkpoint's provenance, license, preprocessing and known limits.
 

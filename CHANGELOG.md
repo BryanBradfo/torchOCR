@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `DBNet_MobileNetV3_Large_05_Weights.ICDAR2015`: first torchocr-trained checkpoint (`PPOCR_V3_EN` fine-tuned 300 epochs on ICDAR-2015 train). ICDAR-2015 test hmean 0.734 (P 0.785, R 0.689) at the train-calibrated `box_thresh=0.45`; 0.688 at PaddleOCR's 0.6. Last epoch, no test-set selection.
 - `meta["postprocess"]` on every detection checkpoint: the `DBPostProcessor` settings its `_metrics` were measured with (`DBPostProcessor(**weights.meta["postprocess"])`); `references/detection/evaluate.py --weights` uses it unless overridden.
 - All five checkpoints published at https://huggingface.co/BryanBradfo/torchocr-weights with a model card.
+- `DBNet_ResNet18_VD_Weights.ICDAR2015`: `PPOCR_SERVER_V2` fine-tuned 300 epochs on ICDAR-2015 train. Test hmean 0.809 (P 0.849, R 0.774) at the train-calibrated `box_thresh=0.5`; 0.794 at 0.6.
+- `CRNN_ResNet34_VD_Weights.ICDAR2015`: `PPOCR_SERVER_V2` fine-tuned 30 epochs on the 4467 ICDAR-2015 training words (`references/recognition/train.py`, crops from jittered ground-truth quads). Test word accuracy 0.738 (was 0.665), CER 0.101.
+- ICDAR-2015 end-to-end hmean with both fine-tuned models: 0.578 (`DBNet_ResNet18_VD_Weights.ICDAR2015` + `CRNN_ResNet34_VD_Weights.ICDAR2015`, 56 ms/image on a laptop GPU), up from 0.219 with the converted PaddleOCR weights.
+- `references/detection/train.py --resume`: full per-epoch checkpoint (model, optimizer, scheduler, RNG), written atomically.
 - `references/detection/calibrate.py`: picks `box_thresh` by train-split hmean (one forward pass per image for all candidate thresholds) and scores the test split once with it.
 - Tests: `test_db_targets.py`, `test_detection_presets.py`.
 - `OCRPipeline.from_pretrained(detector_weights, recognizer_weights, device)`: assembles both models, their presets, `DBPostProcessor(**meta["postprocess"])` and the charset decoder from published weights. ICDAR-2015 end-to-end hmean 0.472 (`ICDAR2015` + `CRNN_ResNet34_VD_Weights.PPOCR_SERVER_V2`), 27 ms/image on GPU.

@@ -234,6 +234,32 @@ class DBNet_ResNet18_VD_Weights(WeightsEnum):
             "_docs": f"{_LINE_LEVEL_CAVEAT} {_ICDAR2015_PROTOCOL}",
         },
     )
+    ICDAR2015 = Weights(
+        url=f"{BASE_URL}/dbnet_resnet18_vd_ic15-d803cec9.pth",
+        # Trained and scored at PaddleOCR's ICDAR-2015 test size (736 x 1280).
+        transforms=partial(DetectionPreset, max_side=1280, channel_order="bgr"),
+        meta={
+            "task": "detection",
+            "backbone": "resnet18_vd",
+            "num_params": 12_364_386,
+            "source": (
+                "torchocr: PPOCR_SERVER_V2 fine-tuned 300 epochs on the 1000 ICDAR-2015 training images "
+                "with references/detection/train.py"
+            ),
+            "license": "Apache-2.0 (base weights); fine-tuned on ICDAR 2015, released for research use",
+            "languages": ["en"],
+            "postprocess": {"threshold": 0.3, "box_thresh": 0.5, "unclip_ratio": 1.5},
+            "_metrics": {"ICDAR2015-test": {"precision": 0.8485, "recall": 0.7737, "hmean": 0.8094}},
+            "_docs": (
+                "Word-level detector for incidental scene text (street-level photos, Latin script). "
+                "box_thresh=0.5 maximizes hmean on the *training* split "
+                "(references/detection/calibrate.py) and was applied once to the test split; with "
+                "PaddleOCR's box_thresh=0.6 this checkpoint scores 0.794. Weights are the last "
+                "epoch -- no checkpoint was selected on the test set. Expect lower recall on dense "
+                f"documents and on non-Latin scripts. {_ICDAR2015_PROTOCOL}"
+            ),
+        },
+    )
     DEFAULT = PPOCR_SERVER_V2
 
 
