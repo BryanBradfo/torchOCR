@@ -5,8 +5,10 @@ Example -- fine-tune the English PP-OCRv3 detector::
     python references/detection/train.py --root ~/data/icdar2015 \\
         --init DBNet_MobileNetV3_Large_05_Weights.PPOCR_V3_EN --output runs/db_mv3_ic15
 
-Writes ``last.pth`` (state_dict) after every epoch and one JSON line per
-evaluation to ``log.jsonl``. The test split is only *monitored*: no
+Writes ``last.pth`` (state_dict) and ``checkpoint.pth`` (model, optimizer,
+scheduler, RNG) after every epoch, and one JSON line per evaluation to
+``log.jsonl``. Rerun the same command with ``--resume`` to continue an
+interrupted run from its last completed epoch. The test split is only *monitored*: no
 checkpoint is selected on it, so the final number is not optimistically
 biased (ICDAR-2015 has no validation split).
 """
@@ -48,6 +50,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--eval-max-side", type=int, default=1280, help="Longer side at evaluation (PaddleOCR: 736x1280).")
     parser.add_argument("--amp", action="store_true", help="bf16 autocast for the forward pass.")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--resume", action="store_true", help="Continue from <output>/checkpoint.pth if present.")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     return parser.parse_args()
 
@@ -115,10 +118,20 @@ def main() -> None:
         log.flush()
         model.train()
 
-    evaluate(0)
+    first_epoch, step = 1, 0
+    checkpoint_path = args.output / "checkpoint.pth"
+    if args.resume and checkpoint_path.exists():
+        state = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        model.load_state_dict(state["model"])
+        optimizer.load_state_dict(state["optimizer"])
+        scheduler.load_state_dict(state["scheduler"])
+        torch.set_rng_state(state["rng"])
+        first_epoch, step = state["epoch"] + 1, state["step"]
+        print(json.dumps({"resumed_from_epoch": state["epoch"], "step": step}), flush=True)
+    else:
+        evaluate(0)
     model.train()
-    step = 0
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(first_epoch, args.epochs + 1):
         start, running = time.perf_counter(), {}
         for images, targets in loader:
             images = images.to(device, non_blocking=True)
@@ -145,6 +158,11 @@ def main() -> None:
                           "epoch_seconds": round(time.perf_counter() - start, 1), **summary}), flush=True)
         zero_subnormals_(model)  # weight decay drifts dead channels into slow subnormals
         torch.save(model.state_dict(), args.output / "last.pth")
+        # Written to a temporary file first so an interruption never leaves a truncated checkpoint.
+        torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(), "rng": torch.get_rng_state(),
+                    "epoch": epoch, "step": step}, checkpoint_path.with_suffix(".tmp"))
+        checkpoint_path.with_suffix(".tmp").replace(checkpoint_path)
         if epoch % args.eval_every == 0 or epoch == args.epochs:
             evaluate(epoch)
     log.close()

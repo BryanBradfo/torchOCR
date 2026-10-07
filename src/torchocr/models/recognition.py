@@ -41,6 +41,33 @@ class CRNN_ResNet34_VD_Weights(WeightsEnum):
             ),
         },
     )
+    ICDAR2015 = Weights(
+        url=f"{BASE_URL}/crnn_resnet34_vd_ic15-da0782b5.pth",
+        transforms=partial(RecognitionPreset, height=32, max_width=320, channel_order="bgr"),
+        meta={
+            "task": "recognition",
+            "backbone": "resnet34_vd",
+            "num_params": 27_860_673,
+            "num_classes": 6625,
+            "charset": "ppocr_keys_v1",  # torchocr.charsets.load_charset
+            "source": (
+                "torchocr: PPOCR_SERVER_V2 fine-tuned 30 epochs on the 4467 legible ICDAR-2015 training "
+                "words (crop_quads on jittered ground-truth quads) with references/recognition/train.py"
+            ),
+            "license": "Apache-2.0 (base weights); fine-tuned on ICDAR 2015, released for research use",
+            "languages": ["en"],
+            "_metrics": {
+                "ICDAR2015-test-gt-quads": {"word_accuracy": 0.7376, "char_error_rate": 0.1010},
+            },
+            "_docs": (
+                "Scene-text word recognizer (CTC). Same benchmark protocol as PPOCR_SERVER_V2: the 2077 "
+                "alphanumeric care words of ICDAR-2015 test cropped with crop_quads on their ground-truth "
+                "quads, case-insensitive. Last epoch, no checkpoint selected on the test set. The charset is "
+                "still PaddleOCR's Chinese + Latin one, but fine-tuning used Latin scene text only, so "
+                "Chinese accuracy is not guaranteed. Reproduce with references/recognition/evaluate.py."
+            ),
+        },
+    )
     DEFAULT = PPOCR_SERVER_V2
 
 
