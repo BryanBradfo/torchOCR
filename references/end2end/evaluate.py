@@ -32,6 +32,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", default="test", choices=["train", "test"])
     parser.add_argument("--detector", default="DBNet_MobileNetV3_Large_05_Weights.ICDAR2015")
     parser.add_argument("--recognizer", default="CRNN_ResNet34_VD_Weights.PPOCR_SERVER_V2")
+    parser.add_argument("--decoder", default="auto", choices=["auto", "greedy", "beam"])
+    parser.add_argument("--min-text-score", type=float, help="Drop regions read with lower confidence.")
     parser.add_argument("--limit", type=int, help="Evaluate only the first N images (smoke test).")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     return parser.parse_args()
@@ -39,7 +41,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    pipeline = OCRPipeline.from_pretrained(args.detector, args.recognizer, device=args.device)
+    pipeline = OCRPipeline.from_pretrained(args.detector, args.recognizer, device=args.device, decoder=args.decoder)
+    pipeline.min_text_score = args.min_text_score
     dataset = DATASETS[args.dataset](args.root, split=args.split)
     num_images = min(len(dataset), args.limit or len(dataset))
 
@@ -59,6 +62,8 @@ def main() -> None:
         "recognizer": args.recognizer,
         "dataset": args.dataset,
         "split": args.split,
+        "decoder": args.decoder,
+        "min_text_score": args.min_text_score,
         "images": num_images,
         "end2end": {"precision": round(e2e.precision, 4), "recall": round(e2e.recall, 4),
                     "hmean": round(e2e.hmean, 4), "correct": e2e.num_matched},
