@@ -1,5 +1,7 @@
 """torchocr: a PyTorch-native end-to-end OCR library."""
 
+__version__ = "0.2.0"
+
 from .charsets import load_charset, load_ppocr_keys_v1
 from .core.structures import DocumentTensor
 from .decoders import CTCGreedyDecoder
