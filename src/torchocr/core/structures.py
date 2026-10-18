@@ -44,12 +44,15 @@ class DocumentTensor:
         polygons: ``(K, 4, 2)`` rotated text quads in reading order
             (top-left, top-right, bottom-right, bottom-left), when the
             post-processor provides them.
+        scores: ``(K,)`` recognition confidence in ``[0, 1]``: the mean
+            probability of the characters read (0 if none).
     """
 
     pixels: Tensor
     text: list[str] = field(default_factory=list)
     bounding_boxes: Tensor | None = None
     polygons: Tensor | None = None
+    scores: Tensor | None = None
 
     def to(self, *args: object, **kwargs: object) -> "DocumentTensor":
         """Return a copy moved to the requested device/dtype."""
@@ -59,4 +62,5 @@ class DocumentTensor:
             text=list(self.text),
             bounding_boxes=move(self.bounding_boxes),
             polygons=move(self.polygons),
+            scores=move(self.scores),
         )

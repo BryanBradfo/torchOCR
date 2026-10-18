@@ -185,3 +185,48 @@ def test_recognizer_runs_in_bounded_chunks(ascii_charset):
     doc = pipeline(torch.randint(0, 256, (3, 128, 256), dtype=torch.uint8))
     assert len(doc.text) == 32 and doc.text == ["A"] * 32
     assert batch_sizes == [10, 10, 10, 2]
+
+
+class _TwoBlobDetector(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.anchor = nn.Parameter(torch.zeros(()))
+
+    def forward(self, images):
+        prob = torch.zeros(images.shape[0], 1, *images.shape[-2:])
+        prob[:, :, 8:24, 8:40] = 0.95
+        prob[:, :, 8:24, 60:92] = 0.95
+        return DBNetOutput(prob, torch.zeros_like(prob))
+
+
+class _ConfidenceRecognizer(nn.Module):
+    """Reads "A" confidently in the first crop and hesitantly in the second."""
+
+    def __init__(self, num_classes: int) -> None:
+        super().__init__()
+        self.num_classes = num_classes
+        self.calls = 0
+
+    def forward(self, crops):
+        logits = torch.full((crops.shape[-1] // 4, crops.shape[0], self.num_classes), -10.0)
+        logits[..., 0] = 0.0  # blank elsewhere
+        logits[0, 0, 34], logits[0, 0, 0] = 10.0, -10.0  # confident "A"
+        if crops.shape[0] > 1:
+            logits[0, 1, 34], logits[0, 1, 35] = 0.0, -0.1  # ~50/50 between two characters
+        return logits
+
+
+def test_scores_and_min_text_score_filter(ascii_charset):
+    kwargs = dict(detector_transforms=DetectionPreset(max_side=None), recognizer_transforms=RecognitionPreset(32, 96))
+    def make(**kw):
+        return OCRPipeline(_TwoBlobDetector(), _ConfidenceRecognizer(len(ascii_charset)), DBPostProcessor(),
+                           CTCGreedyDecoder(ascii_charset), **kwargs, **kw)
+    image = torch.randint(0, 256, (3, 32, 128), dtype=torch.uint8)
+
+    doc = make()(image)
+    assert doc.scores.shape == (2,) and len(doc.text) == 2
+    assert doc.scores[0] > 0.99 and doc.scores[1] < 0.6
+
+    filtered = make(min_text_score=0.8)(image)
+    assert len(filtered.text) == 1 and filtered.polygons.shape == (1, 4, 2)
+    assert filtered.bounding_boxes.shape == (1, 4) and filtered.scores.shape == (1,)

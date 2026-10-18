@@ -54,6 +54,10 @@ class OCRPipeline:
             whose ``normalize`` is applied to the page before cropping.
         recognizer_batch_size: Words cropped and recognized per forward
             pass, bounding memory on dense documents. Default 64.
+        min_text_score: Drop regions whose recognition confidence
+            (``DocumentTensor.scores``) is below this value. ``None`` (default)
+            keeps every region. 0.8 maximizes ICDAR-2015 *training*-split
+            end-to-end hmean for the published scene-text models.
 
     Without presets the input is fed to both models as-is, so it must
     already be normalized and sized for the detector (the v0.1 behavior).
@@ -70,6 +74,7 @@ class OCRPipeline:
         detector_transforms: Callable[[Tensor], Tensor] | None = None,
         recognizer_transforms: RecognitionPreset | None = None,
         recognizer_batch_size: int = 64,
+        min_text_score: float | None = None,
     ) -> None:
         if recognizer_batch_size < 1:
             raise ValueError(f"recognizer_batch_size must be >= 1; got {recognizer_batch_size}.")
@@ -95,6 +100,7 @@ class OCRPipeline:
         self.detector_transforms = detector_transforms
         self.recognizer_transforms = recognizer_transforms
         self.recognizer_batch_size = recognizer_batch_size
+        self.min_text_score = min_text_score
 
     @classmethod
     def from_pretrained(
@@ -103,6 +109,7 @@ class OCRPipeline:
         recognizer_weights: WeightsEnum | str | None = None,
         device: torch.device | str | None = None,
         decoder: str = "auto",
+        min_text_score: float | None = None,
     ) -> "OCRPipeline":
         """Assemble a pipeline from published weights, in eval mode.
 
@@ -119,6 +126,7 @@ class OCRPipeline:
             decoder: ``"auto"`` uses the decoder declared in
                 ``recognizer_weights.meta["decoder"]`` (e.g. beam search with a
                 language model), else greedy; ``"greedy"`` or ``"beam"`` force one.
+            min_text_score: See :class:`OCRPipeline`. Default ``None`` (keep all).
         """
         det_weights = _resolve(detector_weights, DBNet_MobileNetV3_Large_05_Weights)
         rec_weights = _resolve(recognizer_weights, CRNN_ResNet34_VD_Weights)
@@ -132,6 +140,7 @@ class OCRPipeline:
             build_decoder(rec_weights, charset, kind=decoder),
             detector_transforms=det_weights.transforms(),
             recognizer_transforms=rec_weights.transforms(),
+            min_text_score=min_text_score,
         )
 
     def __call__(self, image: Tensor) -> DocumentTensor:
@@ -160,6 +169,7 @@ class OCRPipeline:
 
             page = self.recognizer_transforms.normalize(pixels) if self.recognizer_transforms else pixels
             texts: list[str] = []
+            scores: list[Tensor] = []
             # Bounded chunks: a dense form can hold hundreds of words.
             for chunk in quads.split(self.recognizer_batch_size):
                 crops, _ = crop_quads(
@@ -169,9 +179,18 @@ class OCRPipeline:
                     height=self.crop_size[0],
                     max_width=self.crop_size[1],
                 )
-                texts += self.decoder(self.recognizer(crops))
+                logits = self.recognizer(crops)
+                texts += self.decoder(logits)
+                scores.append(_text_scores(logits))
+            text_scores = torch.cat(scores)
+            if self.min_text_score is not None:
+                keep = text_scores >= self.min_text_score
+                quads, text_scores = quads[keep], text_scores[keep]
+                texts = [t for t, k in zip(texts, keep.tolist()) if k]
 
-        return DocumentTensor(pixels=image, text=texts, bounding_boxes=quad_to_box(quads), polygons=quads)
+        return DocumentTensor(
+            pixels=image, text=texts, bounding_boxes=quad_to_box(quads), polygons=quads, scores=text_scores
+        )
 
     def _regions(self, detection: DBNetOutput) -> Tensor:
         """``(K, 4, 2)`` quads for the single image of ``detection``."""
@@ -180,6 +199,14 @@ class OCRPipeline:
         boxes = self.post_processor(detection)[:, 1:]
         x1, y1, x2, y2 = boxes.unbind(-1)
         return torch.stack([torch.stack(p, -1) for p in ((x1, y1), (x2, y1), (x2, y2), (x1, y2))], dim=1)
+
+
+def _text_scores(logits: Tensor) -> Tensor:
+    """``(K,)`` mean max-probability over the frames whose argmax is not the blank (0 if none)."""
+    best = logits.float().log_softmax(-1).max(-1)  # (T, K)
+    emitted = best.indices != 0
+    total = torch.where(emitted, best.values.exp(), torch.zeros_like(best.values)).sum(0)
+    return total / emitted.sum(0).clamp(min=1)
 
 
 def _resolve(weights: WeightsEnum | str | None, default: type[WeightsEnum]) -> WeightsEnum:
