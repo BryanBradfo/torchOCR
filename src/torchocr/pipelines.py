@@ -52,6 +52,8 @@ class OCRPipeline:
             before the detector (e.g. :class:`~torchocr.transforms.DetectionPreset`).
         recognizer_transforms: Optional :class:`~torchocr.transforms.RecognitionPreset`
             whose ``normalize`` is applied to the page before cropping.
+        recognizer_batch_size: Words cropped and recognized per forward
+            pass, bounding memory on dense documents. Default 64.
 
     Without presets the input is fed to both models as-is, so it must
     already be normalized and sized for the detector (the v0.1 behavior).
@@ -67,7 +69,10 @@ class OCRPipeline:
         crop_size: tuple[int, int] | None = None,
         detector_transforms: Callable[[Tensor], Tensor] | None = None,
         recognizer_transforms: RecognitionPreset | None = None,
+        recognizer_batch_size: int = 64,
     ) -> None:
+        if recognizer_batch_size < 1:
+            raise ValueError(f"recognizer_batch_size must be >= 1; got {recognizer_batch_size}.")
         if crop_size is None:
             crop_size = (
                 (recognizer_transforms.height, recognizer_transforms.max_width)
@@ -89,6 +94,7 @@ class OCRPipeline:
         self.crop_size = crop_size
         self.detector_transforms = detector_transforms
         self.recognizer_transforms = recognizer_transforms
+        self.recognizer_batch_size = recognizer_batch_size
 
     @classmethod
     def from_pretrained(
@@ -149,14 +155,17 @@ class OCRPipeline:
             quads = quads * scale
 
             page = self.recognizer_transforms.normalize(pixels) if self.recognizer_transforms else pixels
-            crops, _ = crop_quads(
-                page[None].float(),
-                quads,
-                torch.zeros(quads.shape[0], dtype=torch.long, device=device),
-                height=self.crop_size[0],
-                max_width=self.crop_size[1],
-            )
-            texts = self.decoder(self.recognizer(crops))
+            texts: list[str] = []
+            # Bounded chunks: a dense form can hold hundreds of words.
+            for chunk in quads.split(self.recognizer_batch_size):
+                crops, _ = crop_quads(
+                    page[None].float(),
+                    chunk,
+                    torch.zeros(chunk.shape[0], dtype=torch.long, device=device),
+                    height=self.crop_size[0],
+                    max_width=self.crop_size[1],
+                )
+                texts += self.decoder(self.recognizer(crops))
 
         return DocumentTensor(pixels=image, text=texts, bounding_boxes=quad_to_box(quads), polygons=quads)
 

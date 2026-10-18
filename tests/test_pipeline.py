@@ -156,3 +156,32 @@ def test_pretrained_pipeline_reads_a_real_receipt():
     pipeline = OCRPipeline.from_pretrained()
     doc = pipeline(load_image("examples/chinese_receipt.jpg")[:3])
     assert "乳酸脱氢酶" in doc.text  # "lactate dehydrogenase" on the lab report
+
+
+def test_recognizer_runs_in_bounded_chunks(ascii_charset):
+    """Dense pages (hundreds of words) must not be sent to the recognizer in one batch."""
+
+    class _ManyBlobs(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.anchor = nn.Parameter(torch.zeros(()))
+
+        def forward(self, images):
+            prob = torch.zeros(images.shape[0], 1, *images.shape[-2:])
+            for row in range(4):
+                for col in range(8):  # 32 separated blobs
+                    prob[:, :, 8 + 30 * row : 20 + 30 * row, 8 + 30 * col : 28 + 30 * col] = 0.95
+            return DBNetOutput(prob, torch.zeros_like(prob))
+
+    recognizer = _ConstantRecognizer(len(ascii_charset))
+    batch_sizes = []
+    original = recognizer.forward
+    recognizer.forward = lambda crops: (batch_sizes.append(crops.shape[0]), original(crops))[1]
+    pipeline = OCRPipeline(
+        _ManyBlobs(), recognizer, DBPostProcessor(), CTCGreedyDecoder(ascii_charset),
+        detector_transforms=DetectionPreset(max_side=None), recognizer_transforms=RecognitionPreset(32, 96),
+        recognizer_batch_size=10,
+    )
+    doc = pipeline(torch.randint(0, 256, (3, 128, 256), dtype=torch.uint8))
+    assert len(doc.text) == 32 and doc.text == ["A"] * 32
+    assert batch_sizes == [10, 10, 10, 2]
