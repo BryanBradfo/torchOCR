@@ -21,11 +21,11 @@ from pathlib import Path
 
 import torch
 from presets import DBTrainPreset
-from torch.utils.data import DataLoader
+from torch.utils.data import ConcatDataset, DataLoader
 
 from evaluate import evaluate_detector
 from torchocr import DBLoss, DBPostProcessor
-from torchocr.datasets import ICDAR2015
+from torchocr.datasets import ICDAR2015, TotalText
 from torchocr.models import DBNet, get_weight
 from torchocr.models.detection import DBNetOutput
 from torchocr.models.hub import zero_subnormals_
@@ -35,6 +35,7 @@ from torchocr.transforms import DBTargets, DetectionPreset
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", required=True, help="Directory with the extracted ICDAR-2015 archives.")
+    parser.add_argument("--totaltext", help="Also train on Total-Text's training split (root directory).")
     start = parser.add_mutually_exclusive_group(required=True)
     start.add_argument("--init", help="Weights enum to fine-tune, e.g. DBNet_MobileNetV3_Large_05_Weights.PPOCR_V3_EN.")
     start.add_argument("--backbone", help="Train this DBNet backbone from random init instead.")
@@ -79,11 +80,10 @@ def main() -> None:
 
     model, preset = build_model(args)
     model.to(device)
-    train_set = ICDAR2015(
-        args.root,
-        split="train",
-        transforms=DBTrainPreset(size=args.size, mean=preset.mean, std=preset.std, channel_order=preset.channel_order),
-    )
+    augment = DBTrainPreset(size=args.size, mean=preset.mean, std=preset.std, channel_order=preset.channel_order)
+    train_set = ICDAR2015(args.root, split="train", transforms=augment)
+    if args.totaltext:
+        train_set = ConcatDataset([train_set, TotalText(args.totaltext, split="train", transforms=augment)])
     loader = DataLoader(
         train_set, batch_size=args.batch_size, shuffle=True, drop_last=True, num_workers=args.workers,
         collate_fn=collate, pin_memory=True, persistent_workers=args.workers > 0,

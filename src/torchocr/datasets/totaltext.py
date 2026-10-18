@@ -79,10 +79,13 @@ class TotalText(Dataset[tuple[Tensor, TextDetectionTarget]]):
     def __len__(self) -> int:
         return len(self.image_paths)
 
+    def load_target(self, index: int) -> TextDetectionTarget:
+        """The annotations of sample ``index``, without decoding its image."""
+        return parse_totaltext_ground_truth(self.gt_dir / f"poly_gt_{self.image_paths[index].stem}.txt")
+
     def __getitem__(self, index: int) -> tuple[Tensor, TextDetectionTarget]:
-        path = self.image_paths[index]
-        image = read_image(str(path), mode=ImageReadMode.RGB)
-        target = parse_totaltext_ground_truth(self.gt_dir / f"poly_gt_{path.stem}.txt")
+        image = read_image(str(self.image_paths[index]), mode=ImageReadMode.RGB)
+        target = self.load_target(index)
         if self.transforms is not None:
             image, target = self.transforms(image, target)
         return image, target

@@ -80,10 +80,13 @@ class ICDAR2015(Dataset[tuple[Tensor, TextDetectionTarget]]):
     def __len__(self) -> int:
         return len(self.image_paths)
 
+    def load_target(self, index: int) -> TextDetectionTarget:
+        """The annotations of sample ``index``, without decoding its image."""
+        return _parse_ground_truth(self.gt_dir / f"gt_{self.image_paths[index].stem}.txt")
+
     def __getitem__(self, index: int) -> tuple[Tensor, TextDetectionTarget]:
-        image_path = self.image_paths[index]
-        image = read_image(str(image_path), mode=ImageReadMode.RGB)
-        target = _parse_ground_truth(self.gt_dir / f"gt_{image_path.stem}.txt")
+        image = read_image(str(self.image_paths[index]), mode=ImageReadMode.RGB)
+        target = self.load_target(index)
         if self.transforms is not None:
             image, target = self.transforms(image, target)
         return image, target

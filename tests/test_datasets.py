@@ -97,3 +97,8 @@ def test_malformed_line_reports_file_and_line(icdar_root):
     gt.write_text("0,0,5,0,5,A\n", encoding="utf-8")
     with pytest.raises(ValueError, match=r"gt_img_2\.txt:1"):
         ICDAR2015(icdar_root, split="test")[1]
+
+
+def test_load_target_skips_image_decoding(icdar_root):
+    dataset = ICDAR2015(icdar_root, split="test")
+    assert dataset.load_target(2).texts == dataset[2][1].texts

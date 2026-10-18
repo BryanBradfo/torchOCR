@@ -71,3 +71,8 @@ def test_image_without_text(root):
 def test_missing_folders_explain_the_layout(tmp_path):
     with pytest.raises(FileNotFoundError, match="txt_format"):
         TotalText(tmp_path, split="train")
+
+
+def test_load_target_matches_getitem(root):
+    dataset = TotalText(root, split="train")
+    assert torch.equal(dataset.load_target(1).polygons, dataset[1][1].polygons)
