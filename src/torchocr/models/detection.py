@@ -13,7 +13,7 @@ from torchvision.models.feature_extraction import create_feature_extractor
 from ..transforms import DetectionPreset
 from .backbones import MobileNetV3, ResNetVd
 from .backbones.mobilenet_v3 import _SEModule
-from .hub import BASE_URL, Weights, WeightsEnum, load_weights, register_model
+from .hub import BASE_URL, Weights, WeightsEnum, get_weight, load_weights, register_model
 
 
 _BACKBONE_TAPS = {"layer1": "c2", "layer2": "c3", "layer3": "c4", "layer4": "c5"}
@@ -27,6 +27,25 @@ class DBNetOutput:
 
     probability: Tensor
     threshold: Tensor
+
+
+# Lets torch.export flatten and rebuild the typed output (it is a pytree node).
+torch.export.register_dataclass(DBNetOutput, serialized_type_name="torchocr.models.detection.DBNetOutput")
+
+
+@torch.fx.wrap
+def _check_dbnet_input(images: Tensor) -> None:
+    """Raise ``ValueError`` unless ``images`` is ``(B, 3, H, W)`` with ``H, W`` multiples of 32.
+
+    A module-level function marked ``torch.fx.wrap``: FX records it as an opaque
+    call instead of tracing its Python ``if``s on proxies, so the model stays
+    FX-traceable while every run (eager, traced, exported) still checks shapes.
+    """
+    if images.ndim != 4 or images.shape[1] != 3:
+        raise ValueError(f"Expected (B, 3, H, W) images; got {tuple(images.shape)}.")
+    height, width = images.shape[-2:]
+    if height % 32 or width % 32:
+        raise ValueError(f"Height and width must be divisible by 32; got {height}x{width}.")
 
 
 class _FPN(nn.Module):
@@ -381,6 +400,8 @@ class DBNet(nn.Module):
         head_inner_channels: int = 64,
     ) -> None:
         super().__init__()
+        if isinstance(weights, str) and "." in weights:
+            weights = get_weight(weights)  # "Cls.NAME" names the architecture too
         if backbone is None:
             backbone = weights.meta["backbone"] if isinstance(weights, WeightsEnum) else "resnet18"
         if weights is not None:
@@ -453,11 +474,7 @@ class DBNet(nn.Module):
         )
 
     def forward(self, images: Tensor) -> DBNetOutput:
-        if images.ndim != 4 or images.shape[1] != 3:
-            raise ValueError(f"Expected (B, 3, H, W) images; got {tuple(images.shape)}.")
-        height, width = images.shape[-2:]
-        if height % 32 or width % 32:
-            raise ValueError(f"Height and width must be divisible by 32; got {height}x{width}.")
+        _check_dbnet_input(images)
 
         feature_maps = self.backbone(images)
 
