@@ -21,6 +21,10 @@ dependencies = [
 [project.optional-dependencies]
 test = [
     "pytest>=7.0",
+    "lmdb",
+]
+lmdb = [
+    "lmdb",
 ]
 convert = [
     "paddlepaddle>=2.5",
