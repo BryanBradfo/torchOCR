@@ -15,7 +15,7 @@ dependencies = [
     "scipy",
     "opencv-python-headless",
     "pyclipper",
-    "shapely",
+    "shapely>=2.0",
 ]
 
 [project.optional-dependencies]

@@ -32,3 +32,14 @@ def test_chars_are_unicode_chinese():
     # The first vendored entries are punctuation (apostrophe, etc.). Sample
     # well into the file where Chinese characters dominate.
     assert ord(chars[1000]) > 0x4E00  # CJK Unified Ideographs start at U+4E00
+
+
+def test_load_charset_by_meta_name():
+    from torchocr import load_charset
+    from torchocr.models import CRNN_ResNet34_VD_Weights
+
+    meta = CRNN_ResNet34_VD_Weights.DEFAULT.meta
+    charset = load_charset(meta["charset"], meta["num_classes"])
+    assert len(charset) == meta["num_classes"]
+    with pytest.raises(ValueError, match="ppocr_keys_v1"):
+        load_charset("latin", 97)

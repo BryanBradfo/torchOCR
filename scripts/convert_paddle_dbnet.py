@@ -32,6 +32,7 @@ from typing import Any
 import torch
 
 from torchocr.models import DBNet
+from torchocr.models.hub import zero_subnormals_
 
 
 # ---------------------------------------------------------------------------
@@ -108,12 +109,7 @@ def paddle_name_for(torch_name: str, stage_format: StageFormat = "prefixed") -> 
 
 
 def load_paddle_state(weights_path: Path) -> dict[str, Any]:
-    """Load a ``.pdparams`` (or ``best_accuracy``) Paddle checkpoint.
-
-    Handles both Paddle 1.x dygraph and Paddle 2.x formats, mirroring
-    PaddleOCR2Pytorch's strategy at
-    ``pytorchocr/base_ocr_v20.py:94-103``.
-    """
+    """Load a ``.pdparams`` (or ``best_accuracy``) Paddle checkpoint (Paddle >= 2.5)."""
     try:
         import paddle  # type: ignore[import-not-found]
     except ImportError as exc:
@@ -123,16 +119,12 @@ def load_paddle_state(weights_path: Path) -> dict[str, Any]:
             f"  ({type(exc).__name__}: {exc})"
         )
 
-    try:
-        # Paddle 2.x path
-        return paddle.load(str(weights_path))
-    except Exception:
-        # Paddle 1.x dygraph fallback
-        import paddle.fluid as fluid  # type: ignore[import-not-found]
-
-        with fluid.dygraph.guard():
-            params, _ = fluid.load_dygraph(str(weights_path))
-        return params
+    # No Paddle 1.x ``fluid.load_dygraph`` fallback: ``paddle.fluid`` is gone
+    # since Paddle 2.6, and catching here only hid the real error (e.g. a
+    # wrong path surfaced as "No module named 'paddle.fluid'").
+    if not weights_path.is_file():
+        sys.exit(f"ERROR: {weights_path} does not exist.")
+    return paddle.load(str(weights_path))
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +190,9 @@ def convert(weights_path: Path, output_path: Path) -> None:
 
     # Verify the model accepts the new state cleanly before writing.
     model.load_state_dict(torch_state, strict=True)
+    # Paddle's weight decay leaves dead channels at ~1e-40: exact zeros keep CPU inference fast.
+    print(f"Zeroed {zero_subnormals_(model)} subnormal values.")
+    torch_state = model.state_dict()
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(torch_state, output_path)

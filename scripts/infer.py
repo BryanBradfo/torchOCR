@@ -7,9 +7,12 @@ Process a PDF or image end-to-end with the OCRPipeline:
   4. Overlay boxes + decoded text via ``draw_bounding_boxes``.
   5. Save annotated JPGs to ``--output-dir``.
 
-Models load with ``weights="DEFAULT"`` -- when the published checkpoint
-is not yet available, the hub prints a warning and falls back to random
-init. The CLI keeps running so users can validate the pipeline path.
+Models are randomly initialized: this CLI validates the pipeline path
+(I/O, shapes, devices, drawing), not accuracy. ``OCRPipeline`` applies a
+single normalization to both stages, while the pretrained PaddleOCR
+checkpoints need one preset each (``weights.transforms()``); until the
+pipeline accepts per-stage presets, use ``scripts/test_full_ocr.py`` for
+real OCR output.
 
 Examples:
     python scripts/infer.py --input docs/contract.pdf
@@ -110,8 +113,8 @@ def build_pipeline(device: torch.device) -> OCRPipeline:
     explicitly *before* assembling the pipeline.
     """
     charset = ["-"] + [chr(c) for c in range(32, 127)]   # blank + 95 ASCII printables
-    detector = DBNet(weights="DEFAULT").train(False).to(device)
-    recognizer = CRNN(num_classes=len(charset), weights="DEFAULT").train(False).to(device)
+    detector = DBNet().train(False).to(device)
+    recognizer = CRNN(num_classes=len(charset)).train(False).to(device)
     return OCRPipeline(
         detector,
         recognizer,
