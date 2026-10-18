@@ -22,7 +22,16 @@ names; the public forward contract returns idiomatic PyTorch outputs.
 
 from typing import Literal
 
+import torch
 from torch import Tensor, nn
+
+
+# torch.fx.wrap only patches the globals of the module that calls it, so each
+# backbone module keeps its own wrapped check (see detection._check_dbnet_input).
+@torch.fx.wrap
+def _check_backbone_input(x: Tensor) -> None:
+    if x.ndim != 4:
+        raise ValueError(f"Expected (B, C, H, W) input; got shape {tuple(x.shape)}.")
 
 
 _BACKBONE_OUT_CHANNELS = (64, 128, 256, 512)
@@ -225,8 +234,7 @@ class ResNetVd(nn.Module):
         return _BACKBONE_OUT_CHANNELS
 
     def forward(self, x: Tensor) -> dict[str, Tensor]:
-        if x.ndim != 4:
-            raise ValueError(f"Expected (B, C, H, W) input; got shape {tuple(x.shape)}.")
+        _check_backbone_input(x)
         x = self.conv1_1(x)
         x = self.conv1_2(x)
         x = self.conv1_3(x)

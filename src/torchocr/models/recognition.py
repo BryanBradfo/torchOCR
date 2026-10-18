@@ -3,14 +3,33 @@
 from functools import partial
 from typing import Literal
 
+import torch
 from torch import Tensor, nn
 
 from ..transforms import RecognitionPreset
 from .backbones import ResNetVd
-from .hub import BASE_URL, Weights, WeightsEnum, load_weights, register_model
+from .hub import BASE_URL, Weights, WeightsEnum, get_weight, load_weights, register_model
 
 
 BackboneName = Literal["vgg", "resnet34_vd"]
+
+
+# Shape checks live in module-level functions marked torch.fx.wrap so FX records
+# them as opaque calls rather than tracing Python ifs on proxies (see
+# torchocr.models.detection._check_dbnet_input).
+@torch.fx.wrap
+def _check_crnn_input(images: Tensor) -> None:
+    if images.ndim != 4 or images.shape[2] != 32:
+        raise ValueError(f"CRNN expects (B, C, 32, W); got {tuple(images.shape)}.")
+
+
+@torch.fx.wrap
+def _check_im2seq_input(x: Tensor) -> None:
+    if x.shape[2] != 1:
+        raise ValueError(
+            f"Im2Seq expects (B, C, 1, T); got shape {tuple(x.shape)}. "
+            "The recognizer backbone must collapse height to 1 before this layer."
+        )
 
 
 class CRNN_ResNet34_VD_Weights(WeightsEnum):
@@ -84,11 +103,7 @@ class _Im2Seq(nn.Module):
     """
 
     def forward(self, x: Tensor) -> Tensor:
-        if x.shape[2] != 1:
-            raise ValueError(
-                f"Im2Seq expects (B, C, 1, T); got shape {tuple(x.shape)}. "
-                "The recognizer backbone must collapse height to 1 before this layer."
-            )
+        _check_im2seq_input(x)
         return x.squeeze(2).permute(0, 2, 1)
 
 
@@ -178,6 +193,14 @@ class CRNN(nn.Module):
         ``T = W // 4``. ``log_softmax`` is not applied -- pass logits
         directly to ``nn.CTCLoss(zero_infinity=True)`` after a
         ``log_softmax(dim=-1)`` at training time.
+
+    Graph capture:
+        FX-traceable and ``torch.export``-able with a dynamic batch size. The
+        crop width must be static under ``torch.export`` (it specializes
+        ``nn.LSTM``'s sequence length) -- which matches inference, where
+        :func:`torchocr.ops.crop_quads` pads every crop to ``max_width``.
+        ``torch.compile`` works but graph-breaks at the LSTM (a Dynamo
+        limitation), so ``fullgraph=True`` is not supported.
     """
 
     def __init__(
@@ -189,6 +212,8 @@ class CRNN(nn.Module):
         rnn_hidden: int = 256,
     ) -> None:
         super().__init__()
+        if isinstance(weights, str) and "." in weights:
+            weights = get_weight(weights)  # "Cls.NAME" names the architecture too
         if backbone is None:
             backbone = weights.meta["backbone"] if isinstance(weights, WeightsEnum) else "vgg"
         if weights is not None:
@@ -256,8 +281,7 @@ class CRNN(nn.Module):
             load_weights(self, weights)
 
     def forward(self, images: Tensor) -> Tensor:
-        if images.ndim != 4 or images.shape[2] != 32:
-            raise ValueError(f"CRNN expects (B, C, 32, W); got {tuple(images.shape)}.")
+        _check_crnn_input(images)
 
         if self.backbone_name == "vgg":
             features = self.cnn(images)

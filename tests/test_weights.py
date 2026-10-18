@@ -226,3 +226,10 @@ def test_zero_subnormals_reports_count():
         module.weight.view(-1)[:3] = torch.finfo(torch.float32).tiny / 2
     assert hub.zero_subnormals_(module) == 3
     assert hub.zero_subnormals_(module) == 0
+
+
+def test_fully_qualified_weight_names_select_the_backbone(fake_download):
+    """`DBNet(weights="Cls.NAME")` must behave like passing the enum member."""
+    assert DBNet(weights="DBNet_ResNet18_VD_Weights.ICDAR2015").backbone_name == "resnet18_vd"
+    assert DBNet(weights="DBNet_MobileNetV3_Large_05_Weights.PPOCR_V3_EN").backbone_name == "mobilenet_v3_large_05"
+    assert CRNN(weights="CRNN_ResNet34_VD_Weights.ICDAR2015").backbone_name == "resnet34_vd"

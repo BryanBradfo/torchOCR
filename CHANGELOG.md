@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Graph capture for every model, tested in `tests/test_compile_export.py`: FX `symbolic_trace`, `torch.export` (DBNet with dynamic height/width in multiples of 32, CRNN with dynamic batch) and `torch.compile` (`fullgraph=True` for DBNet). On GPU, compiling the ResNet18-VD detector cuts 736x1280 inference from 25.0 to 20.3 ms.
+
+### Changed
+- Runtime shape checks moved into module-level `torch.fx.wrap` functions so models FX-trace (they previously failed with `TraceError` on the `if` statements); they still raise `ValueError` in eager, traced and exported runs.
+- `DBNetOutput` is registered with `torch.export.register_dataclass`, so exported detectors return the typed output.
+
 - `torchocr.metrics.DetectionHmean` / `HmeanResult`: ICDAR-2015 IoU protocol (invalid polygons dropped, don't-care filtering at 50% of prediction area, greedy one-to-one matching at IoU > 0.5, dataset-level aggregation). Vectorized with shapely 2. Verified identical to PaddleOCR's `DetectionIoUEvaluator` to 4 decimals on the 500 ICDAR-2015 test images.
 - `torchocr.metrics.RecognitionAccuracy` / `RecognitionResult`: word accuracy and character error rate, with the case-insensitive alphanumeric scene-text protocol as an option.
 - `torchocr.datasets.ICDAR2015` (official RRC folder layout, train/test, numeric image order, BOM/CRLF/comma-in-transcription parsing, `###` → `ignore`) and the typed `TextDetectionTarget(polygons, texts, ignore)` dataclass. Manual download (registration required); a missing folder raises with instructions.
