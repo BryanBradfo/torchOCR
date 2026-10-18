@@ -15,7 +15,7 @@ Every modern deep learning stack lives in PyTorch — except OCR. The dominant t
 ## Philosophy
 
 - **Pure PyTorch.** No Tesseract, no Leptonica, no ONNX intermediaries. Every layer is `nn.Module` you can subclass, fine-tune, or `state_dict`-load.
-- **PyTorch 2.0 first.** Models are `torch.compile`-friendly out of the box. No data-dependent control flow in the hot path; FX-traceable backbones via `torchvision.models.feature_extraction`.
+- **PyTorch 2.0 first.** Every model FX-traces, `torch.export`s with dynamic sizes and `torch.compile`s — checked in CI, shape contracts included (see *Graph capture* below).
 - **Explicit shape contracts.** Outputs are typed dataclasses (`DBNetOutput`), not `Dict[str, Tensor]`. Every model documents its tensor shapes — and asserts them at runtime.
 - **Modular, torchvision-style API.** `from torchocr.models import DBNet, CRNN`. Models compose, swap, and re-export the way you'd expect from `torchvision.models`.
 - **Zero magic at import time.** No global state, no monkey-patching, no network calls unless you ask for them.
@@ -90,14 +90,28 @@ logits = recognizer(crops)           # torch.Size([32, 4, 96])
 log_probs = logits.log_softmax(dim=-1)
 ```
 
-### `torch.compile` opt-in
+### Graph capture: `torch.compile`, `torch.export`, FX
+
+Every model is tested (`tests/test_compile_export.py`) to FX-trace, `torch.export` and `torch.compile`,
+with its runtime shape contract intact:
 
 ```python
-detector = torch.compile(DBNet().train(False))
-recognizer = torch.compile(CRNN(num_classes=96).train(False))
+from torch.export import Dim, export
+
+# Detector: one fused graph, ~1.2x faster on GPU (ResNet18-VD at 736x1280: 25.0 -> 20.3 ms).
+detector = torch.compile(DBNet(weights="DBNet_ResNet18_VD_Weights.ICDAR2015").eval(), fullgraph=True)
+
+# Ahead-of-time export with any image size that is a multiple of 32.
+side = lambda name: 32 * Dim(name, min=1, max=128)
+program = export(DBNet(backbone="resnet18_vd").eval(), (torch.randn(1, 3, 736, 1280),),
+                 dynamic_shapes=({2: side("h"), 3: side("w")},))
 ```
 
-Both modules are FX-friendly; compilation is a single line and the shape contracts above are unchanged.
+`CRNN` exports with a dynamic batch but a static crop width, because `torch.export` specializes
+`nn.LSTM`'s sequence length; inference already pads every crop to `max_width`. Under
+`torch.compile` it graph-breaks at the LSTM (a Dynamo limitation), so `fullgraph=True` applies to
+the detector only. Compiled outputs match eager to ~1e-3 (Inductor reorders floating-point
+operations); published metrics are measured in eager mode.
 
 ### Document-level container
 
