@@ -23,8 +23,10 @@ import time
 import torch
 from torchvision.transforms.v2 import functional as F
 
-from torchocr import CTCGreedyDecoder, load_charset
-from torchocr.datasets import ICDAR2015
+from torchocr import load_charset
+from torchocr.decoders import build_decoder
+from torchocr.datasets import ICDAR2015, TotalText
+from train import as_quad
 from torchocr.metrics import RecognitionAccuracy
 from torchocr.models import CRNN, get_weight
 from torchocr.ops import crop_quads
@@ -36,6 +38,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--split", default="test", choices=["train", "test"])
     parser.add_argument("--weights", default="CRNN_ResNet34_VD_Weights.PPOCR_SERVER_V2")
     parser.add_argument("--crop", default="quad", choices=["quad", "box"])
+    parser.add_argument("--decoder", default="auto", choices=["auto", "greedy", "beam"])
+    parser.add_argument("--dataset", default="icdar2015", choices=["icdar2015", "totaltext"])
     parser.add_argument("--limit", type=int, help="Evaluate only the first N images (smoke test).")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     return parser.parse_args()
@@ -48,9 +52,9 @@ def main() -> None:
     weights = get_weight(args.weights)
     model = CRNN(weights=weights).eval().to(device)
     preset = weights.transforms()
-    decoder = CTCGreedyDecoder(load_charset(weights.meta["charset"], weights.meta["num_classes"]))
+    decoder = build_decoder(weights, load_charset(weights.meta["charset"], weights.meta["num_classes"]), args.decoder)
 
-    dataset = ICDAR2015(args.root, split=args.split)
+    dataset = (TotalText if args.dataset == "totaltext" else ICDAR2015)(args.root, split=args.split)
     num_images = min(len(dataset), args.limit or len(dataset))
     metric = RecognitionAccuracy(case_sensitive=False, alphanumeric_only=True)
     start = time.perf_counter()
@@ -59,7 +63,8 @@ def main() -> None:
         keep = ~target.ignore & torch.tensor([any(c.isalnum() for c in t) for t in target.texts], dtype=torch.bool)
         if not keep.any():
             continue
-        quads = target.polygons[keep]
+        # Curved Total-Text polygons become their min-area rectangle, exactly as in train.py.
+        quads = torch.stack([as_quad(p) for p in target.polygons[keep]])
         if args.crop == "box":
             lo, hi = quads.amin(1), quads.amax(1)
             quads = torch.stack([lo, torch.stack([hi[:, 0], lo[:, 1]], -1), hi, torch.stack([lo[:, 0], hi[:, 1]], -1)], 1)
@@ -82,6 +87,8 @@ def main() -> None:
     print(json.dumps({
         "weights": args.weights,
         "split": args.split,
+        "dataset": args.dataset,
+        "decoder": args.decoder,
         "crop": args.crop,
         "images": num_images,
         "words": result.num_words,

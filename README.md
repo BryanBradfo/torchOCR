@@ -43,17 +43,20 @@ from torchocr import OCRPipeline, load_image
 
 pipeline = OCRPipeline.from_pretrained(
     detector_weights="DBNet_ResNet18_VD_Weights.ICDAR2015",           # scene text, English
-    recognizer_weights="CRNN_ResNet34_VD_Weights.ICDAR2015",
+    recognizer_weights="CRNN_ResNet34_VD_Weights.ICDAR2015_TOTALTEXT_MLT19",  # Latin scene text
     device="cuda",                                                      # or "cpu" (~4 s/page)
+    min_text_score=0.8,                                                 # drop unreadable regions
 )
 doc = pipeline(load_image("photo.jpg"))
 doc.text        # list[str], one per region
 doc.polygons    # (K, 4, 2) rotated quads, reading order, in input pixels
+doc.scores      # (K,) recognition confidence
 ```
 
 Each stage brings its own preprocessing (`weights.transforms()`), post-processing
-(`weights.meta["postprocess"]`) and charset (`weights.meta["charset"]`); words are rectified
-out of the original-resolution image with `torchocr.ops.crop_quads`. The defaults
+(`weights.meta["postprocess"]`), charset (`weights.meta["charset"]`) and decoder
+(`weights.meta["decoder"]`: here CTC beam search with a character language model, downloaded on first
+use); words are rectified out of the original-resolution image with `torchocr.ops.crop_quads`. The defaults
 (`from_pretrained()` with no arguments) pair the multilingual PP-OCRv3 detector with the
 Chinese + English recognizer, suited to documents.
 
@@ -151,22 +154,29 @@ Mismatched inputs raise `ValueError` with the offending shape — a debugging ai
 | `torchocr.ops.crop_quads` (batched perspective rectification) | ✅ Implemented |
 | `torchocr.metrics` (ICDAR hmean, word accuracy / CER) and `torchocr.datasets.ICDAR2015` | ✅ Implemented |
 | DB training (`references/detection/train.py`) | ✅ Implemented |
-| CTC greedy decoding | ✅ Implemented |
+| CTC greedy and beam-search decoding (character n-gram LM) | ✅ Implemented |
+| Datasets: ICDAR-2015, Total-Text, FUNSD, LMDB word crops | ✅ Implemented |
 | End-to-end `OCRPipeline.from_pretrained` (image → text) | ✅ Implemented |
-| CTC beam decoding | 📋 Planned |
 
-Benchmarks (ICDAR-2015 test, official IoU protocol, reproducible with `references/`):
+Benchmarks (official IoU protocol, reproducible with `references/`; fine-tuned weights are the last epoch,
+thresholds chosen on training splits only):
 
-| Weights | hmean |
-| --- | --- |
-| `DBNet_ResNet18_VD_Weights.ICDAR2015` (trained by torchocr, 12.4 M params) | **0.809** |
-| `DBNet_MobileNetV3_Large_05_Weights.ICDAR2015` (trained by torchocr, 0.6 M params) | 0.734 |
-| `DBNet_MobileNetV3_Large_05_Weights.PPOCR_V3_EN` (converted, line-level) | 0.441 |
+| Detection (test hmean) | ICDAR-2015 | Total-Text | FUNSD |
+| --- | --- | --- | --- |
+| `DBNet_ResNet18_VD_Weights.ICDAR2015` (trained by torchocr, 12.4 M params) | **0.809** | 0.696 | **0.826** |
+| `DBNet_MobileNetV3_Large_05_Weights.ICDAR2015` (trained by torchocr, 0.6 M params) | 0.734 | | |
+| `DBNet_MobileNetV3_Large_05_Weights.PPOCR_V3_EN` (converted, line-level) | 0.441 | | 0.180 |
 
-End-to-end (`OCRPipeline`, image → text, word counted when detected *and* read correctly,
-case-insensitive, generic vocabulary; `references/end2end/evaluate.py`): **0.578** hmean with
-`DBNet_ResNet18_VD_Weights.ICDAR2015` + `CRNN_ResNet34_VD_Weights.ICDAR2015`, 56 ms/image on a
-laptop GPU (0.219 with the converted PaddleOCR weights).
+| Recognition (word accuracy on ground-truth words) | ICDAR-2015 | Total-Text |
+| --- | --- | --- |
+| `CRNN_ResNet34_VD_Weights.ICDAR2015_TOTALTEXT_MLT19` + beam search & char LM | **0.791** | **0.802** |
+| `CRNN_ResNet34_VD_Weights.ICDAR2015` (greedy) | 0.738 | |
+| `CRNN_ResNet34_VD_Weights.PPOCR_SERVER_V2` (converted, greedy) | 0.665 | 0.701 |
+
+End to end (`OCRPipeline`, image → text; a word counts when detected *and* read correctly,
+case-insensitive, generic vocabulary; `references/end2end/evaluate.py`), with the two bold models and
+`min_text_score=0.8`: **0.649** on ICDAR-2015 (0.219 with the converted PaddleOCR weights), **0.585** on
+Total-Text and **0.715** on FUNSD scanned forms; ~55 ms per street image on a laptop GPU.
 
 `weights.meta` documents each checkpoint's provenance, license, preprocessing and known limits.
 

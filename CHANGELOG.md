@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-19
+
+More data, a language model, and a document benchmark. Every number is reproducible with `references/`
+and published with its checkpoint at https://huggingface.co/BryanBradfo/torchocr-weights.
+
+| Test set (end-to-end hmean, image → text) | v0.2.0 | v0.3.0 |
+| --- | --- | --- |
+| ICDAR-2015 (street scenes) | 0.578 | **0.649** |
+| Total-Text (curved text) | — | **0.585** |
+| FUNSD (scanned forms) | — | **0.715** |
+
+v0.3.0 pairs `DBNet_ResNet18_VD_Weights.ICDAR2015` with the new
+`CRNN_ResNet34_VD_Weights.ICDAR2015_TOTALTEXT_MLT19`, its beam-search decoder and `min_text_score=0.8`.
+The roadmap target of 0.65 on ICDAR-2015 is missed by 0.001; no setting was tuned on a test set to close it.
+
+### Added
+
+**Data**
+- `torchocr.datasets.TotalText`: curved word polygons (3–19 vertices, padded by repeating the last
+  vertex), tolerant of the release's malformed annotation lines; images read without EXIF rotation,
+  which is what the annotations follow.
+- `torchocr.datasets.FUNSD`: word boxes of 199 noisy scanned forms, the first *document* benchmark.
+- `torchocr.datasets.LMDBWords`: word crops in the deep-text-recognition-benchmark LMDB layout (MJSynth,
+  SynthText, IIIT5K, SVT, MLT crops…), with a label filter that never decodes images. Optional
+  dependency: `pip install torchocr[lmdb]`.
+- `load_target(index)` on the detection datasets: annotations without decoding the image.
+
+**Decoding**
+- `CTCBeamDecoder`: CTC prefix beam search with shallow fusion of an optional language model
+  (~2 ms per word in pure Python).
+- `CharNGramLM`: case-insensitive interpolated Witten-Bell character n-gram model with an end-of-word
+  event; JSON save / load.
+- `weights.meta["decoder"]` declares the decoder a recognizer was benchmarked with;
+  `build_decoder(weights, charset, kind)` builds it and `hub.download_asset` fetches its language model
+  (hash-checked).
+
+**Weights**
+- `CRNN_ResNet34_VD_Weights.ICDAR2015_TOTALTEXT_MLT19`: fine-tuned on 66k Latin scene words
+  (ICDAR-2015, Total-Text, MLT-2019). Word accuracy 0.791 on ICDAR-2015 and 0.802 on Total-Text with
+  its beam search and 6-gram character LM (0.750 / 0.775 greedy).
+
+**Pipeline**
+- `DocumentTensor.scores`: per-word recognition confidence.
+- `OCRPipeline(min_text_score=...)` / `from_pretrained(..., decoder=, min_text_score=)`: drop regions
+  read with low confidence (0.8 maximizes ICDAR-2015 *training*-split end-to-end hmean; +2.8 points on
+  test).
+
+**Training**
+- `references/recognition/train.py` mixes full-image word sources (`--ic15`, `--totaltext`) with LMDB
+  corpora (`--lmdb`), and gains `--amp` (bf16; an epoch went from 21 to 5 minutes) and `--resume`.
+- `references/detection/train.py --totaltext`; `evaluate.py --dataset`;
+  `references/end2end/evaluate.py --dataset {icdar2015,totaltext,funsd} --decoder --min-text-score`.
+
+### Fixed
+- `OCRPipeline` crops and recognizes words in bounded chunks (`recognizer_batch_size=64`): a dense form
+  sent every word to the GPU at once and ran out of memory.
+
+### Notes
+- Training the ResNet18-VD detector on ICDAR-2015 + Total-Text for the same number of steps raised
+  Total-Text hmean (0.696 → 0.758) but lowered ICDAR-2015 (0.809 → 0.784) and FUNSD (0.826 → 0.802);
+  it was not published.
+- No usable full-image ICDAR-2013 or MLT detection mirror was found; MLT-2019 contributes word crops.
+
 ## [0.2.0] - 2026-10-18
 
 The first release with pretrained weights, benchmarks and an image-to-text pipeline. Every number
@@ -104,6 +167,7 @@ training split. Nothing was selected on the test set.
 - Weight Hub for downloading pre-trained weights (with fallback to random init).
 - Production inference CLI (`scripts/infer.py`) and demos.
 
-[Unreleased]: https://github.com/BryanBradfo/torchOCR/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/BryanBradfo/torchOCR/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/BryanBradfo/torchOCR/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/BryanBradfo/torchOCR/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/BryanBradfo/torchOCR/releases/tag/v0.1.0

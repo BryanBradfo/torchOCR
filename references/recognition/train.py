@@ -1,16 +1,24 @@
-"""Fine-tune a CRNN on ICDAR-2015 word crops.
+"""Fine-tune a CRNN on word crops from several sources.
 
-Every care word of the training split is rectified from its full image
-with :func:`torchocr.ops.crop_quads` -- the same path ``OCRPipeline``
-uses at inference -- after jittering the quad's corners so the model
-tolerates imprecise detector boxes. Example::
+Sources mix freely:
 
-    python references/recognition/train.py --root ~/data/icdar2015 \\
-        --init CRNN_ResNet34_VD_Weights.PPOCR_SERVER_V2 --output runs/crnn_ic15
+* full-image datasets with word polygons (``--ic15``, ``--totaltext``):
+  every legible care word is rectified from its full image with
+  :func:`torchocr.ops.crop_quads` -- the path ``OCRPipeline`` uses at
+  inference -- after jittering the quad's corners so the model tolerates
+  imprecise detector boxes;
+* pre-cropped words in the deep-text-recognition-benchmark LMDB layout
+  (``--lmdb``, repeatable), resized by the recognizer's preset.
 
-Writes ``last.pth`` every epoch and logs test word accuracy on
-ground-truth quads every ``--eval-every`` epochs (monitoring only: no
-checkpoint is selected on the test set).
+Words with characters outside the model's charset are skipped. Example::
+
+    python references/recognition/train.py --ic15 ~/data/icdar2015 \
+        --totaltext ~/data/totaltext --lmdb ~/data/mlt2019/Latin \
+        --init CRNN_ResNet34_VD_Weights.PPOCR_SERVER_V2 --output runs/crnn_mix
+
+Writes ``last.pth`` and a resumable ``checkpoint.pth`` (``--resume``) every epoch, and logs test word accuracy on ground-truth
+quads every ``--eval-every`` epochs (monitoring only: no checkpoint is
+selected on the test set).
 """
 
 import argparse
@@ -19,33 +27,54 @@ import math
 import time
 from pathlib import Path
 
+import cv2
+import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import ConcatDataset, DataLoader, Dataset
 from torchvision.io import ImageReadMode, read_image
 
 from torchocr import CRNNLoss, CTCGreedyDecoder, load_charset
-from torchocr.datasets import ICDAR2015
+from torchocr.datasets import ICDAR2015, LMDBWords, TotalText
 from torchocr.metrics import RecognitionAccuracy
 from torchocr.models import CRNN, get_weight
 from torchocr.models.hub import zero_subnormals_
-from torchocr.ops import crop_quads
+from torchocr.ops import crop_quads, order_quad_vertices
 from torchocr.transforms import RecognitionPreset
 
 
-class WordCrops(Dataset):
-    """``(crop, label indices, text)`` for every legible care word of an ICDAR-2015 split."""
+def as_quad(polygon: torch.Tensor) -> torch.Tensor:
+    """Reading-order quad for a (possibly padded) polygon.
 
-    def __init__(self, dataset: ICDAR2015, preset: RecognitionPreset, charset: list[str], jitter: float) -> None:
+    Four distinct vertices are kept as annotated (ICDAR and Total-Text list them
+    in reading order); curved polygons are replaced by their minimum-area
+    rectangle.
+    """
+    distinct = torch.unique_consecutive(polygon, dim=0)
+    if len(distinct) > 1 and torch.equal(distinct[0], distinct[-1]):
+        distinct = distinct[:-1]
+    if len(distinct) == 4:
+        return distinct
+    rect = cv2.boxPoints(cv2.minAreaRect(polygon.numpy().astype(np.float32)))
+    return order_quad_vertices(torch.from_numpy(rect))
+
+
+class WordCrops(Dataset):
+    """``(crop, label indices, text)`` for every legible care word of a full-image dataset.
+
+    ``dataset`` must expose ``image_paths`` and ``load_target(index)``
+    (:class:`ICDAR2015`, :class:`TotalText`).
+    """
+
+    def __init__(self, dataset, preset: RecognitionPreset, charset: list[str], jitter: float) -> None:
         self.dataset, self.preset, self.jitter = dataset, preset, jitter
         index = {c: i for i, c in enumerate(charset) if i > 0}  # 0 is the CTC blank
         self.words: list[tuple[int, torch.Tensor, list[int], str]] = []
         for image_idx in range(len(dataset)):
-            # Ground truth only: avoid decoding the image here.
-            target = _ground_truth(dataset, image_idx)
-            for quad, text, ignored in zip(target.polygons, target.texts, target.ignore.tolist()):
+            target = dataset.load_target(image_idx)  # no image decoding
+            for polygon, text, ignored in zip(target.polygons, target.texts, target.ignore.tolist()):
                 if ignored or not any(c.isalnum() for c in text) or any(c not in index for c in text):
                     continue
-                self.words.append((image_idx, quad, [index[c] for c in text], text))
+                self.words.append((image_idx, as_quad(polygon), [index[c] for c in text], text))
 
     def __len__(self) -> int:
         return len(self.words)
@@ -61,11 +90,22 @@ class WordCrops(Dataset):
         return crop[0], label, text
 
 
-def _ground_truth(dataset: ICDAR2015, image_idx: int):
-    from torchocr.datasets.icdar import _parse_ground_truth
+class CroppedWords(Dataset):
+    """``(crop, label indices, text)`` from an :class:`LMDBWords` corpus of pre-cropped words."""
 
-    stem = dataset.image_paths[image_idx].stem
-    return _parse_ground_truth(dataset.gt_dir / f"gt_{stem}.txt")
+    def __init__(self, root: Path, preset: RecognitionPreset, charset: list[str], max_length: int) -> None:
+        index = {c: i for i, c in enumerate(charset) if i > 0}
+        self.index, self.preset = index, preset
+        self.words = LMDBWords(
+            root, label_filter=lambda t: 0 < len(t) <= max_length and all(c in index for c in t)
+        )
+
+    def __len__(self) -> int:
+        return len(self.words)
+
+    def __getitem__(self, i: int) -> tuple[torch.Tensor, list[int], str]:
+        image, text = self.words[i]
+        return self.preset(image), [self.index[c] for c in text], text
 
 
 def collate(batch):
@@ -80,7 +120,10 @@ def collate(batch):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--root", required=True)
+    parser.add_argument("--ic15", "--root", dest="ic15", required=True, help="ICDAR-2015 root (train + test).")
+    parser.add_argument("--totaltext", help="Total-Text root: adds its training words, and its test words to monitoring.")
+    parser.add_argument("--lmdb", action="append", default=[], help="Pre-cropped LMDB word corpus (repeatable).")
+    parser.add_argument("--ic15-repeat", type=int, default=2, help="Times the ICDAR-2015 words appear per epoch.")
     parser.add_argument("--init", default="CRNN_ResNet34_VD_Weights.PPOCR_SERVER_V2")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--epochs", type=int, default=30)
@@ -90,7 +133,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--jitter", type=float, default=0.1, help="Corner jitter, as a fraction of word height.")
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--eval-every", type=int, default=5)
+    parser.add_argument("--amp", action="store_true", help="bf16 autocast for the forward pass (~1.8x faster).")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--resume", action="store_true", help="Continue from <output>/checkpoint.pth if present.")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     return parser.parse_args()
 
@@ -118,11 +163,21 @@ def main() -> None:
     charset = load_charset(weights.meta["charset"], weights.meta["num_classes"])
     decoder = CTCGreedyDecoder(charset)
 
-    train_words = WordCrops(ICDAR2015(args.root, split="train"), preset, charset, jitter=args.jitter)
-    test_words = WordCrops(ICDAR2015(args.root, split="test"), preset, charset, jitter=0.0)
+    # CTC needs at least one frame per label (more for repeats): keep labels under T / 2.
+    max_length = preset.max_width // 4 // 2
+    sources = {"icdar2015": WordCrops(ICDAR2015(args.ic15, split="train"), preset, charset, jitter=args.jitter)}
+    test_sets = {"icdar2015": WordCrops(ICDAR2015(args.ic15, split="test"), preset, charset, jitter=0.0)}
+    if args.totaltext:
+        sources["totaltext"] = WordCrops(TotalText(args.totaltext, split="train"), preset, charset, jitter=args.jitter)
+        test_sets["totaltext"] = WordCrops(TotalText(args.totaltext, split="test"), preset, charset, jitter=0.0)
+    for path in args.lmdb:
+        sources[Path(path).name] = CroppedWords(Path(path), preset, charset, max_length)
+    train_words = ConcatDataset([sources["icdar2015"]] * args.ic15_repeat + [v for k, v in sources.items() if k != "icdar2015"])
     loader = DataLoader(train_words, batch_size=args.batch_size, shuffle=True, drop_last=True,
                         num_workers=args.workers, collate_fn=collate, persistent_workers=args.workers > 0)
-    print(json.dumps({"train_words": len(train_words), "test_words": len(test_words)}), flush=True)
+    print(json.dumps({"train_words": {k: len(v) for k, v in sources.items()}, "ic15_repeat": args.ic15_repeat,
+                      "samples_per_epoch": len(train_words), "test_words": {k: len(v) for k, v in test_sets.items()}}),
+          flush=True)
 
     criterion = CRNNLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.0)
@@ -137,17 +192,30 @@ def main() -> None:
     log = (args.output / "log.jsonl").open("a")
 
     def report(epoch: int) -> None:
-        record = {"epoch": epoch, "test_word_accuracy": round(evaluate(model, test_words, decoder, device), 4)}
+        record = {"epoch": epoch, **{f"{name}_test_word_accuracy": round(evaluate(model, words, decoder, device), 4)
+                                     for name, words in test_sets.items()}}
         print(json.dumps(record), flush=True)
         log.write(json.dumps(record) + "\n")
         log.flush()
 
-    report(0)
+    first_epoch, checkpoint_path = 1, args.output / "checkpoint.pth"
+    if args.resume and checkpoint_path.exists():
+        state = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        model.load_state_dict(state["model"])
+        optimizer.load_state_dict(state["optimizer"])
+        scheduler.load_state_dict(state["scheduler"])
+        torch.set_rng_state(state["rng"])
+        first_epoch = state["epoch"] + 1
+        print(json.dumps({"resumed_from_epoch": state["epoch"]}), flush=True)
+    else:
+        report(0)
     model.train()
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(first_epoch, args.epochs + 1):
         start, total = time.perf_counter(), 0.0
         for crops, targets, target_lengths, _ in loader:
-            logits = model(crops.to(device, non_blocking=True))
+            with torch.autocast(device.type, dtype=torch.bfloat16, enabled=args.amp):
+                logits = model(crops.to(device, non_blocking=True))
+            # CTC loss in fp32: the cast below happens outside autocast.
             input_lengths = torch.full((logits.shape[1],), logits.shape[0], dtype=torch.long)
             loss = criterion(logits.float(), targets, input_lengths, target_lengths)
             optimizer.zero_grad(set_to_none=True)
@@ -160,6 +228,10 @@ def main() -> None:
                           "epoch_seconds": round(time.perf_counter() - start, 1)}), flush=True)
         zero_subnormals_(model)
         torch.save(model.state_dict(), args.output / "last.pth")
+        torch.save({"model": model.state_dict(), "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(), "rng": torch.get_rng_state(), "epoch": epoch},
+                   checkpoint_path.with_suffix(".tmp"))
+        checkpoint_path.with_suffix(".tmp").replace(checkpoint_path)
         if epoch % args.eval_every == 0 or epoch == args.epochs:
             report(epoch)
     log.close()
