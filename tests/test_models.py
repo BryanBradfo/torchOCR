@@ -149,3 +149,14 @@ def test_crnn_resnet34_vd_state_dict_layout():
 def test_crnn_rejects_unknown_backbone():
     with pytest.raises(ValueError):
         CRNN(num_classes=10, backbone="totally-not-real")  # type: ignore[arg-type]
+
+
+def test_version_matches_pyproject():
+    import re
+    from pathlib import Path
+
+    import torchocr
+
+    # tomllib is 3.11+; CI also runs 3.10.
+    pyproject = (Path(__file__).resolve().parent.parent / "pyproject.toml").read_text()
+    assert torchocr.__version__ == re.search(r'^version = "([^"]+)"', pyproject, re.M).group(1)
