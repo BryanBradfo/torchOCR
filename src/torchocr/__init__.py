@@ -1,6 +1,6 @@
 """torchocr: a PyTorch-native end-to-end OCR library."""
 
-from .charsets import load_ppocr_keys_v1
+from .charsets import load_charset, load_ppocr_keys_v1
 from .core.structures import DocumentTensor
 from .decoders import CTCGreedyDecoder
 from .io import load_image, load_pdf
@@ -16,6 +16,7 @@ __all__ = [
     "DocumentTensor",
     "OCRPipeline",
     "load_image",
+    "load_charset",
     "load_pdf",
     "load_ppocr_keys_v1",
 ]

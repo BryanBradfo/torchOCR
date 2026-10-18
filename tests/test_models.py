@@ -120,8 +120,8 @@ def test_crnn_rejects_bad_shape(shape, reason):
 
 
 def test_crnn_requires_num_classes():
-    with pytest.raises(TypeError):
-        CRNN()  # type: ignore[call-arg]
+    with pytest.raises(ValueError, match="num_classes"):
+        CRNN()
 
 
 # === CRNN ResNet-34-VD path ===
