@@ -1,4 +1,4 @@
-"""Evaluate a full OCRPipeline (image -> text) on ICDAR-2015.
+"""Evaluate a full OCRPipeline (image -> text) on ICDAR-2015, Total-Text or FUNSD.
 
 Each test image goes through ``OCRPipeline.from_pretrained`` exactly as a
 user would call it. A word counts when its region matches a ground-truth
@@ -18,16 +18,22 @@ import time
 import torch
 
 from torchocr import OCRPipeline
-from torchocr.datasets import ICDAR2015
+from torchocr.datasets import FUNSD, ICDAR2015, TotalText
 from torchocr.metrics import DetectionHmean, EndToEndHmean
+
+
+DATASETS = {"icdar2015": ICDAR2015, "totaltext": TotalText, "funsd": FUNSD}
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--root", required=True, help="Directory with the extracted ICDAR-2015 archives.")
+    parser.add_argument("--root", required=True, help="Dataset root directory.")
+    parser.add_argument("--dataset", default="icdar2015", choices=sorted(DATASETS))
     parser.add_argument("--split", default="test", choices=["train", "test"])
     parser.add_argument("--detector", default="DBNet_MobileNetV3_Large_05_Weights.ICDAR2015")
     parser.add_argument("--recognizer", default="CRNN_ResNet34_VD_Weights.PPOCR_SERVER_V2")
+    parser.add_argument("--decoder", default="auto", choices=["auto", "greedy", "beam"])
+    parser.add_argument("--min-text-score", type=float, help="Drop regions read with lower confidence.")
     parser.add_argument("--limit", type=int, help="Evaluate only the first N images (smoke test).")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     return parser.parse_args()
@@ -35,8 +41,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    pipeline = OCRPipeline.from_pretrained(args.detector, args.recognizer, device=args.device)
-    dataset = ICDAR2015(args.root, split=args.split)
+    pipeline = OCRPipeline.from_pretrained(args.detector, args.recognizer, device=args.device, decoder=args.decoder)
+    pipeline.min_text_score = args.min_text_score
+    dataset = DATASETS[args.dataset](args.root, split=args.split)
     num_images = min(len(dataset), args.limit or len(dataset))
 
     end2end, detection = EndToEndHmean(), DetectionHmean()
@@ -53,7 +60,10 @@ def main() -> None:
     print(json.dumps({
         "detector": args.detector,
         "recognizer": args.recognizer,
+        "dataset": args.dataset,
         "split": args.split,
+        "decoder": args.decoder,
+        "min_text_score": args.min_text_score,
         "images": num_images,
         "end2end": {"precision": round(e2e.precision, 4), "recall": round(e2e.recall, 4),
                     "hmean": round(e2e.hmean, 4), "correct": e2e.num_matched},

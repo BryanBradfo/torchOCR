@@ -21,7 +21,7 @@ import time
 import torch
 
 from torchocr import DBPostProcessor
-from torchocr.datasets import ICDAR2015
+from torchocr.datasets import ICDAR2015, TotalText
 from torchocr.metrics import DetectionHmean, HmeanResult
 from torchocr.models import DBNet, get_weight
 from torchocr.transforms import DetectionPreset
@@ -29,7 +29,8 @@ from torchocr.transforms import DetectionPreset
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--root", required=True, help="Directory with the extracted ICDAR-2015 archives.")
+    parser.add_argument("--root", required=True, help="Dataset root directory.")
+    parser.add_argument("--dataset", default="icdar2015", choices=["icdar2015", "totaltext"])
     parser.add_argument("--split", default="test", choices=["train", "test"])
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--weights", help="Weights enum, e.g. DBNet_ResNet18_VD_Weights.PPOCR_SERVER_V2.")
@@ -66,7 +67,7 @@ def build(args: argparse.Namespace) -> tuple[DBNet, DetectionPreset]:
 @torch.inference_mode()
 def evaluate_detector(
     model: DBNet,
-    dataset: ICDAR2015,
+    dataset: ICDAR2015 | TotalText,
     preset: DetectionPreset,
     postprocess: DBPostProcessor,
     device: torch.device,
@@ -103,7 +104,7 @@ def main() -> None:
             settings[name] = getattr(args, name)
     postprocess = DBPostProcessor(**settings)
 
-    dataset = ICDAR2015(args.root, split=args.split)
+    dataset = (TotalText if args.dataset == "totaltext" else ICDAR2015)(args.root, split=args.split)
     num_images = min(len(dataset), args.limit or len(dataset))
     start = time.perf_counter()
     result = evaluate_detector(model, dataset, preset, postprocess, device, args.limit, args.axis_aligned)
@@ -111,6 +112,7 @@ def main() -> None:
 
     report = {
         "source": args.weights or args.checkpoint,
+        "dataset": args.dataset,
         "split": args.split,
         "images": num_images,
         "preset": preset.extra_repr(),
