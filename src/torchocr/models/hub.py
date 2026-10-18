@@ -20,11 +20,12 @@ import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any, TypeVar
 
 import torch
 from torch import nn
-from torch.hub import HASH_REGEX, load_state_dict_from_url
+from torch.hub import HASH_REGEX, download_url_to_file, load_state_dict_from_url
 
 
 BASE_URL = "https://huggingface.co/BryanBradfo/torchocr-weights/resolve/main"
@@ -34,6 +35,7 @@ __all__ = [
     "HASH_REGEX",
     "Weights",
     "WeightsEnum",
+    "download_asset",
     "get_model",
     "get_model_weights",
     "get_weight",
@@ -141,6 +143,21 @@ def zero_subnormals_(module: nn.Module) -> int:
             zeroed += int(subnormal.sum())
             tensor.masked_fill_(subnormal, 0)
     return zeroed
+
+
+def download_asset(url: str, progress: bool = True) -> Path:
+    """Fetch a non-checkpoint file (e.g. a language model) into the torch.hub cache.
+
+    Like checkpoints, asset names embed a SHA-256 prefix (``name-<hash>.ext``)
+    that is verified on download; cached files are reused as-is.
+    """
+    name = url.rsplit("/", 1)[-1]
+    destination = Path(torch.hub.get_dir()) / "checkpoints" / name
+    if not destination.exists():
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        match = HASH_REGEX.search(name)
+        download_url_to_file(url, str(destination), hash_prefix=match.group(1) if match else None, progress=progress)
+    return destination
 
 
 # === Registry ===

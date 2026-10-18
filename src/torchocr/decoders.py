@@ -254,3 +254,30 @@ def _logsumexp(a: float, b: float) -> float:
         return a
     m = max(a, b)
     return m + math.log(math.exp(a - m) + math.exp(b - m))
+
+
+def build_decoder(
+    weights, charset: list[str], kind: str = "auto"
+) -> CTCGreedyDecoder | CTCBeamDecoder:
+    """The decoder a recognizer checkpoint was benchmarked with.
+
+    ``weights.meta["decoder"]`` may declare ``{"type": "ctc_beam",
+    "beam_width", "lm_weight", "lm_url"}``; the language model is downloaded
+    (hash-checked) on first use.
+
+    Args:
+        weights: A recognizer weights enum member.
+        charset: Its charset (``load_charset(meta["charset"], meta["num_classes"])``).
+        kind: ``"auto"`` (the declared decoder, else greedy), ``"greedy"`` or ``"beam"``.
+    """
+    if kind not in ("auto", "greedy", "beam"):
+        raise ValueError(f"kind must be 'auto', 'greedy' or 'beam'; got '{kind}'.")
+    spec = weights.meta.get("decoder")
+    if kind == "greedy" or (kind == "auto" and spec is None):
+        return CTCGreedyDecoder(charset)
+    if spec is None:
+        raise ValueError(f"{weights!r} does not declare a beam decoder in meta['decoder'].")
+    from .models import hub  # lazy: keeps decoders importable on their own
+
+    lm = CharNGramLM.load(hub.download_asset(spec["lm_url"])) if spec.get("lm_url") else None
+    return CTCBeamDecoder(charset, beam_width=spec.get("beam_width", 10), lm=lm, lm_weight=spec.get("lm_weight", 0.3))

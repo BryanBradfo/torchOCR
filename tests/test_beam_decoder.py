@@ -91,3 +91,43 @@ def test_batch_and_shape_contract():
         CTCBeamDecoder(CHARSET)(torch.randn(12, len(CHARSET)))
     with pytest.raises(ValueError, match="charset size"):
         CTCBeamDecoder(CHARSET)(torch.randn(12, 1, 4))
+
+
+# === Decoders declared by weights ===
+
+
+def test_build_decoder_follows_weights_meta(tmp_path, monkeypatch):
+    from torchocr.decoders import build_decoder
+    from torchocr.models import hub
+
+    lm = CharNGramLM.from_texts(["block"], order=3)
+    lm_file = tmp_path / "lm-00000000.json"
+    lm.save(lm_file)
+    monkeypatch.setattr(hub, "download_asset", lambda url: lm_file)
+
+    class _Weights:
+        meta = {"decoder": {"type": "ctc_beam", "beam_width": 7, "lm_weight": 0.25, "lm_url": "https://x/lm-00000000.json"}}
+
+    beam = build_decoder(_Weights(), CHARSET)
+    assert isinstance(beam, CTCBeamDecoder)
+    assert (beam.beam_width, beam.lm_weight, beam.lm.order) == (7, 0.25, 3)
+
+    class _Plain:
+        meta = {}
+
+    assert isinstance(build_decoder(_Plain(), CHARSET), CTCGreedyDecoder)
+    assert isinstance(build_decoder(_Weights(), CHARSET, kind="greedy"), CTCGreedyDecoder)
+    with pytest.raises(ValueError, match="does not declare"):
+        build_decoder(_Plain(), CHARSET, kind="beam")
+
+
+def test_download_asset_checks_the_hash_in_the_file_name(tmp_path, monkeypatch):
+    from torchocr.models import hub
+
+    calls = []
+    monkeypatch.setattr(hub.torch.hub, "get_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(hub, "download_url_to_file", lambda url, dst, hash_prefix, progress: calls.append(hash_prefix) or open(dst, "w").write("{}"))
+    path = hub.download_asset("https://example.org/charlm6-1a2b3c4d.json")
+    assert path.name == "charlm6-1a2b3c4d.json" and calls == ["1a2b3c4d"]
+    hub.download_asset("https://example.org/charlm6-1a2b3c4d.json")  # cached: no second download
+    assert calls == ["1a2b3c4d"]

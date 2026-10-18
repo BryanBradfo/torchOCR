@@ -7,7 +7,7 @@ from torch import Tensor, nn
 
 from .charsets import load_charset
 from .core.structures import DocumentTensor
-from .decoders import CTCGreedyDecoder
+from .decoders import build_decoder
 from .models import CRNN, CRNN_ResNet34_VD_Weights, DBNet, DBNet_MobileNetV3_Large_05_Weights, WeightsEnum, get_weight
 from .models.detection import DBNetOutput
 from .ops import crop_quads, quad_to_box
@@ -102,6 +102,7 @@ class OCRPipeline:
         detector_weights: WeightsEnum | str | None = None,
         recognizer_weights: WeightsEnum | str | None = None,
         device: torch.device | str | None = None,
+        decoder: str = "auto",
     ) -> "OCRPipeline":
         """Assemble a pipeline from published weights, in eval mode.
 
@@ -115,6 +116,9 @@ class OCRPipeline:
             recognizer_weights: CRNN weights enum member or ``"Cls.NAME"``.
                 Default ``CRNN_ResNet34_VD_Weights.DEFAULT``.
             device: Where to place both models. Default: CPU.
+            decoder: ``"auto"`` uses the decoder declared in
+                ``recognizer_weights.meta["decoder"]`` (e.g. beam search with a
+                language model), else greedy; ``"greedy"`` or ``"beam"`` force one.
         """
         det_weights = _resolve(detector_weights, DBNet_MobileNetV3_Large_05_Weights)
         rec_weights = _resolve(recognizer_weights, CRNN_ResNet34_VD_Weights)
@@ -125,7 +129,7 @@ class OCRPipeline:
             detector,
             recognizer,
             DBPostProcessor(**det_weights.meta.get("postprocess", {})),
-            CTCGreedyDecoder(charset),
+            build_decoder(rec_weights, charset, kind=decoder),
             detector_transforms=det_weights.transforms(),
             recognizer_transforms=rec_weights.transforms(),
         )
