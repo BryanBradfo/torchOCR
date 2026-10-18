@@ -16,8 +16,17 @@ already consume.
 
 from typing import Literal
 
+import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
+
+
+# torch.fx.wrap only patches the globals of the module that calls it, so each
+# backbone module keeps its own wrapped check (see detection._check_dbnet_input).
+@torch.fx.wrap
+def _check_backbone_input(x: Tensor) -> None:
+    if x.ndim != 4:
+        raise ValueError(f"Expected (B, C, H, W) input; got shape {tuple(x.shape)}.")
 
 
 def _hard_swish(x: Tensor, inplace: bool = True) -> Tensor:
@@ -291,8 +300,7 @@ class MobileNetV3(nn.Module):
         return self._out_channels
 
     def forward(self, x: Tensor) -> dict[str, Tensor]:
-        if x.ndim != 4:
-            raise ValueError(f"Expected (B, C, H, W) input; got shape {tuple(x.shape)}.")
+        _check_backbone_input(x)
         x = self.conv(x)
         feats: list[Tensor] = []
         for stage in self.stages:
