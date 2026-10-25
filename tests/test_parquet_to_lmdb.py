@@ -54,3 +54,13 @@ def test_refuses_to_overwrite(tmp_path):
     convert([tmp_path / "a.parquet"], tmp_path / "lmdb")
     with pytest.raises(FileExistsError):
         convert([tmp_path / "a.parquet"], tmp_path / "lmdb")
+
+
+def test_undecodable_images_are_skipped_and_reported(tmp_path, capsys):
+    good, broken = _png(12), _png(12)[:40]  # truncated PNG
+    images = pa.array([{"bytes": b, "path": None} for b in (good, broken, good)],
+                      type=pa.struct([("bytes", pa.binary()), ("path", pa.string())]))
+    pq.write_table(pa.table({"image": images, "label": ["a", "b", "c"]}), tmp_path / "a.parquet")
+    assert convert([tmp_path / "a.parquet"], tmp_path / "lmdb") == 2
+    assert LMDBWords(tmp_path / "lmdb").labels == ["a", "c"]
+    assert "skipped 1 undecodable" in capsys.readouterr().out
