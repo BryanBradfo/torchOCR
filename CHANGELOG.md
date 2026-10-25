@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `CRNN_ResNet34_VD_Weights.MJSYNTH_ICDAR2015_TOTALTEXT_MLT19`: the v0.3 scene recognizer trained 6
+  more epochs with MJSynth synthetic words mixed in. Word accuracy (beam + LM) 0.799 on ICDAR-2015
+  (was 0.791) and 0.819 on Total-Text (was 0.802). End to end with `DBNet_ResNet18_VD_Weights.ICDAR2015`
+  and `min_text_score=0.8`: ICDAR-2015 **0.665** (was 0.649, target 0.65 reached), Total-Text 0.585
+  (unchanged), FUNSD 0.722 (was 0.715).
+- `references/recognition/parquet_to_lmdb.py` (Hugging Face Parquet corpora to LMDB, skipping
+  undecodable images: 14 in MJSynth), per-epoch sampling of large corpora (`--lmdb PATH:N`), and
+  `references/recognition/build_lm.py`.
+
 ## [0.3.0] - 2026-10-19
 
 More data, a language model, and a document benchmark. Every number is reproducible with `references/`
