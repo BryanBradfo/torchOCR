@@ -8,7 +8,7 @@ from shapely.geometry import Polygon
 from torch import Tensor
 
 from .models.detection import DBNetOutput
-from .ops import order_quad_vertices
+from .ops import order_quad_vertices, reading_order
 
 
 class DBPostProcessor:
@@ -79,25 +79,28 @@ class DBPostProcessor:
         self.min_size = min_size
 
     def __call__(self, output: DBNetOutput) -> Tensor:
-        """Return ``(K, 5)`` ``[batch_idx, x1, y1, x2, y2]`` axis-aligned boxes."""
+        """Return ``(K, 5)`` ``[batch_idx, x1, y1, x2, y2]`` axis-aligned boxes, each image's in reading order."""
         device = output.probability.device
         rows = [
             torch.cat([torch.full((quads.shape[0], 1), float(batch_idx)), quads.amin(1), quads.amax(1)], dim=1)
-            for batch_idx, quads in enumerate(self._quadrilaterals_cpu(output))
+            for batch_idx, quads in enumerate(q[reading_order(q)] for q in self._quadrilaterals_cpu(output))
         ]
         return torch.cat(rows).to(device) if rows else torch.zeros((0, 5), device=device)
 
     def quadrilaterals(self, output: DBNetOutput) -> list[Tensor]:
         """Return one ``(N_b, 4, 2)`` tensor of rotated text quads per image.
 
-        Vertices are ``(x, y)`` input-pixel coordinates clipped to the
-        page, in reading order (top-left, top-right, bottom-right,
-        bottom-left) so they feed :func:`torchocr.ops.crop_quads`. Unlike
+        Regions are sorted in reading order (:func:`torchocr.ops.reading_order`:
+        lines top to bottom, words left to right). Vertices are ``(x, y)``
+        input-pixel coordinates clipped to the page, ordered top-left,
+        top-right, bottom-right, bottom-left so they feed
+        :func:`torchocr.ops.crop_quads`. Unlike
         :meth:`__call__`, the rotation of each region is preserved, which
         is what polygon-based benchmarks such as ICDAR-2015 score.
         """
         device = output.probability.device
-        return [order_quad_vertices(quads).to(device) for quads in self._quadrilaterals_cpu(output)]
+        ordered = [order_quad_vertices(quads) for quads in self._quadrilaterals_cpu(output)]
+        return [quads[reading_order(quads)].to(device) for quads in ordered]
 
     def _quadrilaterals_cpu(self, output: DBNetOutput) -> list[Tensor]:
         probability = output.probability
