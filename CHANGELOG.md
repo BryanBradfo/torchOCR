@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Sphinx documentation site (`docs/`, `pip install -e .[docs]`): getting started, API reference,
+  a models page whose weights tables are generated from `weights.meta` at build time, benchmarks
+  with known limits, and a sphinx-gallery of runnable examples (`gallery/`). CI builds it with
+  warnings as errors.
+
 ## [0.3.0] - 2026-10-19
 
 More data, a language model, and a document benchmark. Every number is reproducible with `references/`
