@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `torchocr.transforms.v2`: text polygons through `torchvision.transforms.v2` as `tv_tensors.KeyPoints`.
+  `TextDetectionTarget` is now a pytree node, so `texts` and `ignore` stay aligned through any v2
+  transform; `wrap_sample` wraps dataset samples, `RandomTextCrop` crops without cutting text
+  (PaddleOCR's `EastRandomCropData`), `SanitizeTextPolygons` drops off-canvas regions and marks
+  clipped ones don't-care.
+
+### Changed
+- Requires `torchvision>=0.23` (`tv_tensors.KeyPoints`).
+
 ## [0.3.0] - 2026-10-19
 
 More data, a language model, and a document benchmark. Every number is reproducible with `references/`
