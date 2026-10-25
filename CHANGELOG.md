@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `torchocr.ops.reading_order`: sorts text regions into lines (top to bottom) and words (left to
+  right), following slightly slanted lines.
+
+### Fixed
+- `DBPostProcessor` and therefore `OCRPipeline` return regions in reading order; they came out in
+  contour order (roughly bottom to top), so `" ".join(document.text)` scrambled sentences.
+- `load_image` returns 3-channel RGB by default (`mode=` to override); grayscale scans and RGBA
+  screenshots used to be rejected by `OCRPipeline`.
+
 ## [0.3.0] - 2026-10-19
 
 More data, a language model, and a document benchmark. Every number is reproducible with `references/`

@@ -46,3 +46,16 @@ def test_load_pdf_rejects_non_positive_dpi(tmp_path):
         load_pdf(tmp_path / "anything.pdf", dpi=0)
     with pytest.raises(ValueError):
         load_pdf(tmp_path / "anything.pdf", dpi=-1)
+
+
+def test_load_image_converts_grayscale_and_rgba_to_rgb(tmp_path):
+    from PIL import Image
+    from torchvision.io import ImageReadMode
+
+    from torchocr.io import load_image
+
+    Image.new("L", (20, 10), 128).save(tmp_path / "gray.png")
+    Image.new("RGBA", (20, 10), (10, 20, 30, 0)).save(tmp_path / "rgba.png")
+    assert load_image(tmp_path / "gray.png").shape == (3, 10, 20)
+    assert load_image(tmp_path / "rgba.png").shape == (3, 10, 20)
+    assert load_image(tmp_path / "gray.png", mode=ImageReadMode.UNCHANGED).shape == (1, 10, 20)
