@@ -4,7 +4,9 @@ Hugging Face hosts MJSynth, SynthText and similar corpora as Parquet files
 with an ``image`` column (``{"bytes", "path"}``) and a text column. LMDB is
 the format recognition corpora usually ship in and the one ``LMDBWords``
 reads, with fast random access for shuffled training. Files are streamed one
-row group at a time, so memory stays flat whatever the corpus size.
+row group at a time, so memory stays flat whatever the corpus size. Every
+image is test-decoded and undecodable ones are skipped (MJSynth ships a few
+truncated files that would otherwise crash training hours in).
 Example::
 
     python references/recognition/parquet_to_lmdb.py \\
@@ -20,6 +22,8 @@ from pathlib import Path
 
 import lmdb
 import pyarrow.parquet as pq
+import torch
+from torchvision.io import decode_image
 
 
 def convert(
@@ -37,7 +41,7 @@ def convert(
         raise FileExistsError(f"{output} already holds an LMDB database.")
     output.mkdir(parents=True, exist_ok=True)
     env = lmdb.open(str(output), map_size=map_size)
-    count = 0
+    count = skipped = 0
     txn = env.begin(write=True)
     try:
         for path in files:
@@ -45,8 +49,12 @@ def convert(
             for group in range(parquet.num_row_groups):
                 table = parquet.read_row_group(group, columns=[image_column, text_column])
                 for image, text in zip(table.column(image_column).to_pylist(), table.column(text_column).to_pylist()):
+                    data = image["bytes"] if isinstance(image, dict) else image
+                    if not _decodes(data):
+                        skipped += 1
+                        continue
                     count += 1
-                    txn.put(f"image-{count:09d}".encode(), image["bytes"] if isinstance(image, dict) else image)
+                    txn.put(f"image-{count:09d}".encode(), data)
                     txn.put(f"label-{count:09d}".encode(), text.encode("utf-8"))
                     if count % commit_every == 0:
                         txn.commit()
@@ -58,6 +66,15 @@ def convert(
         txn.put(b"num-samples", str(count).encode())
         txn.commit()
         env.close()
+        print(f"Kept {count} samples; skipped {skipped} undecodable images.")
+
+
+def _decodes(data: bytes) -> bool:
+    try:
+        decode_image(torch.frombuffer(bytearray(data), dtype=torch.uint8))
+    except RuntimeError:
+        return False
+    return True
 
 
 def main() -> None:
