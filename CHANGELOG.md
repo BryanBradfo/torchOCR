@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   transform; `wrap_sample` wraps dataset samples, `RandomTextCrop` crops without cutting text
   (PaddleOCR's `EastRandomCropData`), `SanitizeTextPolygons` drops off-canvas regions and marks
   clipped ones don't-care.
+- Sphinx documentation site (`docs/`, `pip install -e .[docs]`): getting started, API reference,
+  a models page whose weights tables are generated from `weights.meta` at build time, benchmarks
+  with known limits, and a sphinx-gallery of runnable examples (`gallery/`). CI builds it with
+  warnings as errors.
 
 ### Changed
 - Requires `torchvision>=0.23` (`tv_tensors.KeyPoints`).
