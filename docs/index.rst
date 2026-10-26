@@ -16,7 +16,7 @@ the benchmark that justifies them.
 
    pipeline = OCRPipeline.from_pretrained(
        "DBNet_ResNet18_VD_Weights.ICDAR2015",
-       "CRNN_ResNet34_VD_Weights.ICDAR2015_TOTALTEXT_MLT19",
+       "CRNN_ResNet34_VD_Weights.MJSYNTH_ICDAR2015_TOTALTEXT_MLT19",
        min_text_score=0.8,
    )
    document = pipeline(load_image("street.jpg"))

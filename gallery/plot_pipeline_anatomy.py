@@ -47,7 +47,8 @@ plt.tight_layout()
 # %%
 # 2. Post-processing
 # ------------------
-# :class:`~torchocr.DBPostProcessor` turns the probability map into rotated quadrilaterals.
+# :class:`~torchocr.DBPostProcessor` turns the probability map into rotated quadrilaterals, sorted
+# in reading order (:func:`torchocr.ops.reading_order`).
 # They are in the resized image's pixels; scale them back to the original.
 
 postprocess = DBPostProcessor(**det_weights.meta["postprocess"])
@@ -62,7 +63,7 @@ print(f"{len(quads)} regions; first quad:\n{quads[0]}")
 # :func:`torchocr.ops.crop_quads` warps every quad into an axis-aligned strip of fixed height with
 # one batched ``grid_sample`` call, undoing rotation and perspective.
 
-rec_weights = CRNN_ResNet34_VD_Weights.ICDAR2015_TOTALTEXT_MLT19
+rec_weights = CRNN_ResNet34_VD_Weights.MJSYNTH_ICDAR2015_TOTALTEXT_MLT19
 preset = rec_weights.transforms()
 crops, widths = crop_quads(preset.normalize(image)[None].float(), quads, torch.zeros(len(quads), dtype=torch.long),
                            height=32, max_width=320)
