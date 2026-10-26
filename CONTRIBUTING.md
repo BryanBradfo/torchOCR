@@ -34,11 +34,11 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 pip install -e .
 ```
 
-Verify the install with the shape-contract smoke test:
+Verify the install with the test suite:
 
 ```bash
-python scripts/test_inference.py
-# Expected: probability/threshold/logits shapes printed, exits 0
+pip install -e ".[test]"
+python -m pytest
 ```
 
 ## Style invariants (match exactly)
@@ -79,39 +79,27 @@ CRNN forward returns *raw* logits — callers apply `log_softmax` for `nn.CTCLos
 There is no `tests/` directory yet (it's on the roadmap). Today's verification surface:
 
 ```bash
-# Full pytest suite
-python -m pytest tests/
+# Full pytest suite (FX / export / compile checks included)
+python -m pytest
 
-# Shape-contract smoke (no pytest)
-python scripts/test_inference.py
+# Documentation, warnings as errors (TORCHOCR_DOCS_GALLERY=0 skips running the examples)
+pip install -e ".[docs]"
+sphinx-build -W -b html docs docs/_build/html
 
-# Image demo on a real Chinese document (writes examples/chinese_receipt_annotated.jpg)
-python examples/demo_inference.py
-
-# Same demo with converted PaddleOCR weights (real boxes, not random):
-# 1) python scripts/convert_paddle_dbnet.py --paddle-weights <pdparams> --output /tmp/dbnet_rvd.pth
-# 2) python examples/demo_inference.py --weights /tmp/dbnet_rvd.pth
-
-# PDF demo (uses examples/sample_doc.pdf)
-python examples/demo_pdf.py
-
-# CLI on the synthetic PDF
-python scripts/infer.py --input examples/sample_doc.pdf --output-dir /tmp/torchocr_smoke
+# Reproduce a published number, e.g. end to end on ICDAR-2015
+python references/end2end/evaluate.py --root <icdar2015> \
+    --detector DBNet_ResNet18_VD_Weights.ICDAR2015 \
+    --recognizer CRNN_ResNet34_VD_Weights.MJSYNTH_ICDAR2015_TOTALTEXT_MLT19 --min-text-score 0.8
 ```
 
-Every PR that touches `src/torchocr/` should keep all four green.
+Every PR must keep the tests and the documentation build green (CI runs both).
 
 ## Pull request process
 
 ### Branch naming
 
-Use Conventional Commits prefixes as branch namespaces:
-
-- `feat/<short-slug>` — new functionality
-- `fix/<short-slug>` — bug fixes
-- `docs/<short-slug>` — documentation only
-- `chore/<short-slug>` — repo hygiene, deps, CI
-- `refactor/<short-slug>` — code restructure without behavior change
+Branch from `main` as `feature/<short-slug>` (e.g. `feature/reading-order`) and open a pull request
+against `main`; nothing is committed to `main` directly.
 
 ### Commit messages
 
