@@ -108,6 +108,27 @@ class CroppedWords(Dataset):
         return self.preset(image), [self.index[c] for c in text], text
 
 
+def parse_lmdb_spec(spec: str) -> tuple[Path, int | None]:
+    """``"PATH"`` or ``"PATH:N"`` (draw N random samples of the corpus per epoch)."""
+    path, _, count = spec.rpartition(":")
+    if path and count.isdigit():
+        return Path(path).expanduser(), int(count)
+    return Path(spec).expanduser(), None
+
+
+def epoch_sampler(sizes: list[int], caps: list[int | None]) -> torch.utils.data.Sampler:
+    """Sample a concatenation of sources: uncapped ones whole, capped ones ``cap`` times per epoch.
+
+    Each epoch draws, with replacement, as many samples as the uncapped sizes plus the caps, so a
+    9M-word synthetic corpus can sit next to a few thousand real words without drowning them.
+    """
+    if all(cap is None for cap in caps):
+        return torch.utils.data.RandomSampler(range(sum(sizes)))
+    weights = torch.cat([torch.full((size,), 1.0 if cap is None else cap / size) for size, cap in zip(sizes, caps)])
+    total = sum(size if cap is None else cap for size, cap in zip(sizes, caps))
+    return torch.utils.data.WeightedRandomSampler(weights, num_samples=total, replacement=True)
+
+
 def collate(batch):
     crops, labels, texts = zip(*batch)
     return (
@@ -122,7 +143,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--ic15", "--root", dest="ic15", required=True, help="ICDAR-2015 root (train + test).")
     parser.add_argument("--totaltext", help="Total-Text root: adds its training words, and its test words to monitoring.")
-    parser.add_argument("--lmdb", action="append", default=[], help="Pre-cropped LMDB word corpus (repeatable).")
+    parser.add_argument("--lmdb", action="append", default=[],
+                        help="Pre-cropped LMDB word corpus, PATH or PATH:N to draw N samples per epoch (repeatable).")
     parser.add_argument("--ic15-repeat", type=int, default=2, help="Times the ICDAR-2015 words appear per epoch.")
     parser.add_argument("--init", default="CRNN_ResNet34_VD_Weights.PPOCR_SERVER_V2")
     parser.add_argument("--output", required=True, type=Path)
@@ -170,14 +192,18 @@ def main() -> None:
     if args.totaltext:
         sources["totaltext"] = WordCrops(TotalText(args.totaltext, split="train"), preset, charset, jitter=args.jitter)
         test_sets["totaltext"] = WordCrops(TotalText(args.totaltext, split="test"), preset, charset, jitter=0.0)
-    for path in args.lmdb:
-        sources[Path(path).name] = CroppedWords(Path(path), preset, charset, max_length)
-    train_words = ConcatDataset([sources["icdar2015"]] * args.ic15_repeat + [v for k, v in sources.items() if k != "icdar2015"])
-    loader = DataLoader(train_words, batch_size=args.batch_size, shuffle=True, drop_last=True,
+    caps = {}
+    for spec in args.lmdb:
+        path, cap = parse_lmdb_spec(spec)
+        sources[path.name], caps[path.name] = CroppedWords(path, preset, charset, max_length), cap
+    parts = [("icdar2015", sources["icdar2015"])] * args.ic15_repeat + [(k, v) for k, v in sources.items() if k != "icdar2015"]
+    train_words = ConcatDataset([dataset for _, dataset in parts])
+    sampler = epoch_sampler([len(dataset) for _, dataset in parts], [caps.get(name) for name, _ in parts])
+    loader = DataLoader(train_words, batch_size=args.batch_size, sampler=sampler, drop_last=True,
                         num_workers=args.workers, collate_fn=collate, persistent_workers=args.workers > 0)
     print(json.dumps({"train_words": {k: len(v) for k, v in sources.items()}, "ic15_repeat": args.ic15_repeat,
-                      "samples_per_epoch": len(train_words), "test_words": {k: len(v) for k, v in test_sets.items()}}),
-          flush=True)
+                      "per_epoch_caps": {k: c for k, c in caps.items() if c}, "samples_per_epoch": len(sampler),
+                      "test_words": {k: len(v) for k, v in test_sets.items()}}), flush=True)
 
     criterion = CRNNLoss()
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=0.0)
