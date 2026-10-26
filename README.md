@@ -210,6 +210,13 @@ Total-Text and **0.715** on FUNSD scanned forms; ~55 ms per street image on a la
 - **Training utilities**: `DBLoss` (BCE + L1 + dice), CTC training helpers, ICDAR/Total-Text dataset wrappers.
 - **Quantization & export**: `torch.ao.quantization` integration and clean ONNX export for both models.
 
+## Documentation
+
+```bash
+pip install -e ".[docs]"
+sphinx-build -b html docs docs/_build/html   # TORCHOCR_DOCS_GALLERY=0 skips running the examples
+```
+
 ## Verifying the install
 
 ```bash

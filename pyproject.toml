@@ -27,6 +27,12 @@ test = [
 lmdb = [
     "lmdb",
 ]
+docs = [
+    "sphinx>=8",
+    "sphinx-gallery>=0.17",
+    "pydata-sphinx-theme>=0.16",
+    "matplotlib",
+]
 convert = [
     "paddlepaddle>=2.5",
 ]
