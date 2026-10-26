@@ -29,13 +29,13 @@ each model's preprocessing, post-processing and decoder from its ``weights.meta`
    device = "cuda" if torch.cuda.is_available() else "cpu"
    pipeline = OCRPipeline.from_pretrained(
        "DBNet_ResNet18_VD_Weights.ICDAR2015",
-       "CRNN_ResNet34_VD_Weights.ICDAR2015_TOTALTEXT_MLT19",
+       "CRNN_ResNet34_VD_Weights.MJSYNTH_ICDAR2015_TOTALTEXT_MLT19",
        device=device,
        min_text_score=0.8,  # drop regions read with low confidence
    )
    document = pipeline(load_image("street.jpg"))
 
-   document.text            # list[str], one per detected region
+   document.text            # list[str], one per region, in reading order
    document.polygons        # (K, 4, 2) rotated quads
    document.bounding_boxes  # (K, 4) xyxy
    document.scores          # (K,) recognition confidence

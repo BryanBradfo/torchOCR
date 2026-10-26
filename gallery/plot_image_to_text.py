@@ -21,7 +21,7 @@ ASSETS = Path("../examples")  # run from the gallery/ directory, as sphinx-galle
 
 pipeline = OCRPipeline.from_pretrained(
     "DBNet_ResNet18_VD_Weights.ICDAR2015",
-    "CRNN_ResNet34_VD_Weights.ICDAR2015_TOTALTEXT_MLT19",
+    "CRNN_ResNet34_VD_Weights.MJSYNTH_ICDAR2015_TOTALTEXT_MLT19",
     device="cuda" if torch.cuda.is_available() else "cpu",
     min_text_score=0.8,
 )
@@ -29,8 +29,8 @@ image = load_image(ASSETS / "english_doc.jpg")  # (3, H, W) uint8 RGB
 document = pipeline(image)
 
 # %%
-# The result is a :class:`~torchocr.DocumentTensor`: the untouched input, one string per region,
-# the rotated quadrilaterals they were read from, axis-aligned boxes and a
+# The result is a :class:`~torchocr.DocumentTensor`: the untouched input, one string per region
+# in reading order, the rotated quadrilaterals they were read from, axis-aligned boxes and a
 # recognition confidence per region.
 
 for text, score in zip(document.text, document.scores.tolist()):
