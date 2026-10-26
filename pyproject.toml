@@ -20,6 +20,12 @@ dependencies = [
     "shapely>=2.0",
 ]
 
+[project.urls]
+Documentation = "https://bryanbradfo.me/torchOCR/"
+Source = "https://github.com/BryanBradfo/torchOCR"
+Changelog = "https://github.com/BryanBradfo/torchOCR/blob/main/CHANGELOG.md"
+Weights = "https://huggingface.co/BryanBradfo/torchocr-weights"
+
 [project.optional-dependencies]
 test = [
     "pytest>=7.0",

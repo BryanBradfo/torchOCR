@@ -2,7 +2,7 @@
 
 **A PyTorch-native, end-to-end OCR library — batchable, GPU-first, and free of clunky C++ runtimes.**
 
-[![CI](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml/badge.svg)](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml) · [![PyPI](https://img.shields.io/pypi/v/torchocr)](https://pypi.org/project/torchocr/) · [ python · 3.10+ ] · [ pytorch · 2.0+ ] · [ license · BSD-3-Clause ]
+[![CI](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml/badge.svg)](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml) · [![PyPI](https://img.shields.io/pypi/v/torchocr)](https://pypi.org/project/torchocr/) · [ python · 3.10+ ] · [ pytorch · 2.0+ ] · [docs](https://bryanbradfo.me/torchOCR/) · [ license · BSD-3-Clause ]
 
 ---
 
@@ -199,6 +199,8 @@ Total-Text and **0.722** on FUNSD scanned forms; ~60 ms per street image on a la
 - **Deployment**: `torch.ao` quantization and ONNX / `torch.export` packaging of both models.
 
 ## Documentation
+
+Online at **https://bryanbradfo.me/torchOCR/** (API reference, pretrained weights, benchmarks, example gallery). To build it locally:
 
 ```bash
 pip install -e ".[docs]"

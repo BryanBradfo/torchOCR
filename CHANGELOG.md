@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   suite and the documentation gallery replace them. The PaddleOCR converters stay in `scripts/`.
 
 ### Changed
+- Documentation deployed to https://bryanbradfo.me/torchOCR/ by `.github/workflows/docs.yml` on every
+  merge into `main`; project URLs added to the package metadata.
 - README and CONTRIBUTING: the building-blocks example uses pretrained weights end to end; the
   architecture table, test and documentation commands and branch naming are up to date.
 
