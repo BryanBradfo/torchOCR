@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 
+import torch
 from torch import Tensor
 
 
@@ -31,6 +32,11 @@ class TextDetectionTarget:
                 f"polygons ({n}), texts ({len(self.texts)}) and ignore "
                 f"{tuple(self.ignore.shape)} must describe the same N regions."
             )
+
+
+# A pytree node: torchvision.transforms.v2 then moves ``polygons`` (once wrapped as
+# ``tv_tensors.KeyPoints``) and leaves ``texts`` and ``ignore`` aligned. See torchocr.transforms.v2.
+torch.export.register_dataclass(TextDetectionTarget)
 
 
 @dataclass

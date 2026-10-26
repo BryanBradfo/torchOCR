@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `references/recognition/build_lm.py`.
 - `torchocr.ops.reading_order`: sorts text regions into lines (top to bottom) and words (left to
   right), following slightly slanted lines.
+- `torchocr.transforms.v2`: text polygons through `torchvision.transforms.v2` as `tv_tensors.KeyPoints`.
+  `TextDetectionTarget` is now a pytree node, so `texts` and `ignore` stay aligned through any v2
+  transform; `wrap_sample` wraps dataset samples, `RandomTextCrop` crops without cutting text
+  (PaddleOCR's `EastRandomCropData`), `SanitizeTextPolygons` drops off-canvas regions and marks
+  clipped ones don't-care.
+
+### Changed
+- Requires `torchvision>=0.23` (`tv_tensors.KeyPoints`).
 
 ### Fixed
 - `DBPostProcessor` and therefore `OCRPipeline` return regions in reading order; they came out in

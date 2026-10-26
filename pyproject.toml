@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "torch",
-    "torchvision",
+    "torchvision>=0.23",  # tv_tensors.KeyPoints (torchocr.transforms.v2)
     "pymupdf",
     "scipy",
     "opencv-python-headless",
