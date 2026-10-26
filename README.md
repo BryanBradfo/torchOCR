@@ -93,6 +93,27 @@ logits = recognizer(crops)           # torch.Size([32, 4, 96])
 log_probs = logits.log_softmax(dim=-1)
 ```
 
+### Augmenting text polygons with `torchvision.transforms.v2`
+
+Text regions travel through torchvision's own v2 transforms as `tv_tensors.KeyPoints`; torchocr adds
+the two OCR-specific pieces, a crop that never cuts a word and a sanitizer that keeps `texts` and
+`ignore` aligned with the polygons that survive.
+
+```python
+from torchvision.transforms import v2
+from torchocr.datasets import TotalText
+from torchocr.transforms import MakeDBTargets
+from torchocr.transforms.v2 import RandomTextCrop, SanitizeTextPolygons, wrap_sample
+
+augment = v2.Compose([
+    v2.RandomRotation(10), v2.RandomAffine(0, scale=(0.5, 3.0)),
+    RandomTextCrop(), v2.Resize(size=None, max_size=640),
+    SanitizeTextPolygons(),            # off-canvas words dropped, clipped ones marked don't-care
+])
+image, target = augment(*wrap_sample(*TotalText("~/data/totaltext", split="train")[0]))
+db_targets = MakeDBTargets()(target.polygons, target.ignore, image.shape[-2:])
+```
+
 ### Graph capture: `torch.compile`, `torch.export`, FX
 
 Every model is tested (`tests/test_compile_export.py`) to FX-trace, `torch.export` and `torch.compile`,
