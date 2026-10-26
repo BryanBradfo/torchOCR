@@ -6,12 +6,12 @@ Installation
 
 .. code-block:: bash
 
-   git clone https://github.com/BryanBradfo/torchOCR.git
-   cd torchOCR
-   pip install -e .
+   pip install torchocr
 
-torchocr needs PyTorch 2 and torchvision 0.23 or later. ``pip install -e .[lmdb]`` adds the
-LMDB word-corpus reader, ``.[test]`` the test suite, ``.[docs]`` this site.
+or, from source, ``git clone https://github.com/BryanBradfo/torchOCR.git && pip install -e torchOCR``.
+
+torchocr needs PyTorch 2 and torchvision 0.23 or later. ``pip install torchocr[lmdb]`` adds the
+LMDB word-corpus reader; from source, ``.[test]`` adds the test suite and ``.[docs]`` this site.
 
 Image to text
 -------------

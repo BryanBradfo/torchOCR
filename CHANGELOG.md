@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-26
+
+First release on PyPI (`pip install torchocr`). No library change since 0.4.0.
+
+### Changed
+- License declared as BSD-3-Clause (torchvision's license) in the README and the package metadata;
+  `LICENSE` copyright holder is Bryan Chen.
+- Tags `v*` publish the sdist and wheel to PyPI from GitHub Actions (`.github/workflows/release.yml`,
+  trusted publishing, no stored token).
+
 ## [0.4.0] - 2026-10-26
 
 Synthetic data, polygon-aware augmentation and a documentation site. Every number is reproducible with
