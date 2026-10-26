@@ -125,6 +125,48 @@ class CRNN_ResNet34_VD_Weights(WeightsEnum):
             ),
         },
     )
+
+    MJSYNTH_ICDAR2015_TOTALTEXT_MLT19 = Weights(
+        url=f"{BASE_URL}/crnn_resnet34_vd_synth-513c0334.pth",
+        transforms=partial(RecognitionPreset, height=32, max_width=320, channel_order="bgr"),
+        meta={
+            "task": "recognition",
+            "backbone": "resnet34_vd",
+            "num_params": 27_860_673,
+            "num_classes": 6625,
+            "charset": "ppocr_keys_v1",  # torchocr.charsets.load_charset
+            "decoder": {
+                "type": "ctc_beam",
+                "beam_width": 10,
+                "lm_weight": 0.2,
+                "lm_url": f"{BASE_URL}/charlm6_scene-883dd7cd.json",
+            },
+            "source": (
+                "torchocr: ICDAR2015_TOTALTEXT_MLT19 fine-tuned 6 more epochs (bf16), each drawing 370k words "
+                "at random: the 66k real Latin scene words (ICDAR-2015 train x2, Total-Text train, MLT-2019 "
+                "Latin crops) once on average, plus 300k of the 7.2M MJSynth synthetic words, with "
+                "references/recognition/train.py"
+            ),
+            "license": (
+                "Apache-2.0 (base weights); fine-tuned on ICDAR 2015, Total-Text, MLT 2019 and MJSynth, "
+                "released for research use"
+            ),
+            "languages": ["en", "fr", "de", "it", "es", "pt"],
+            "_metrics": {
+                "ICDAR2015-test-gt-quads": {"word_accuracy": 0.7987, "char_error_rate": 0.0789},
+                "TotalText-test-gt-quads": {"word_accuracy": 0.8190, "char_error_rate": 0.0924},
+            },
+            "_docs": (
+                "Latin scene-text word recognizer, ICDAR2015_TOTALTEXT_MLT19 further trained with MJSynth "
+                "synthetic words mixed into every epoch. Decoded like its parent, with the same CTC beam "
+                "search (width 10) and 6-gram character language model (built from real training "
+                "transcriptions only; beam width and LM weight were chosen on Total-Text *training* words). "
+                "Same benchmark protocol as PPOCR_SERVER_V2 (ground-truth quads cropped with crop_quads, case-insensitive). "
+                "Last epoch, no checkpoint selected on any test set. Chinese is no longer supported in "
+                "practice. Reproduce with references/recognition/evaluate.py."
+            ),
+        },
+    )
     DEFAULT = PPOCR_SERVER_V2
 
 
