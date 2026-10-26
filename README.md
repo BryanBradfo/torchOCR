@@ -2,7 +2,7 @@
 
 **A PyTorch-native, end-to-end OCR library — batchable, GPU-first, and free of clunky C++ runtimes.**
 
-[![CI](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml/badge.svg)](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml) · [ pypi · pre-release ] · [ python · 3.10+ ] · [ pytorch · 2.0+ ] · [ license · BSD-3-Clause ]
+[![CI](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml/badge.svg)](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml) · [![PyPI](https://img.shields.io/pypi/v/torchocr)](https://pypi.org/project/torchocr/) · [ python · 3.10+ ] · [ pytorch · 2.0+ ] · [ license · BSD-3-Clause ]
 
 ---
 
@@ -23,8 +23,10 @@ Every modern deep learning stack lives in PyTorch — except OCR. The dominant t
 ## Installation
 
 ```bash
-pip install torchocr      # once published — currently install from source
+pip install torchocr
 ```
+
+From source:
 
 ```bash
 git clone https://github.com/BryanBradfo/torchOCR.git
@@ -32,7 +34,7 @@ cd torchOCR
 pip install -e .
 ```
 
-Requires Python 3.10+, PyTorch 2.0+, and torchvision.
+Requires Python 3.10+, PyTorch 2.0+, and torchvision 0.23+.
 
 ## Quickstart
 
