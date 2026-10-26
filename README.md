@@ -2,7 +2,7 @@
 
 **A PyTorch-native, end-to-end OCR library — batchable, GPU-first, and free of clunky C++ runtimes.**
 
-[![CI](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml/badge.svg)](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml) · [ pypi · pre-release ] · [ python · 3.10+ ] · [ pytorch · 2.0+ ] · [ license · MIT ]
+[![CI](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml/badge.svg)](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml) · [ pypi · pre-release ] · [ python · 3.10+ ] · [ pytorch · 2.0+ ] · [ license · BSD-3-Clause ]
 
 ---
 
@@ -237,4 +237,4 @@ Issues and PRs welcome. Each model in `src/torchocr/models/` documents its shape
 
 ## License
 
-MIT — see `LICENSE`.
+BSD 3-Clause, like torchvision — see `LICENSE`.
