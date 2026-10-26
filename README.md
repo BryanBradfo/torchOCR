@@ -64,35 +64,34 @@ Chinese + English recognizer, suited to documents.
 
 ### Building blocks
 
+Every stage is an ordinary module or callable you can use, replace or fine-tune on its own:
+
 ```python
 import torch
-from torchocr.models import DBNet, CRNN
+from torchocr import DBPostProcessor, load_charset
+from torchocr.decoders import build_decoder
+from torchocr.io import load_image
+from torchocr.models import CRNN, DBNet, CRNN_ResNet34_VD_Weights, DBNet_ResNet18_VD_Weights
+from torchocr.ops import crop_quads
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+image = load_image("photo.jpg")                                   # (3, H, W) uint8 RGB
 
-# Detection: ResNet-18 + FPN -> probability and threshold maps.
-# .train(False) is the explicit form of the standard PyTorch eval-mode idiom.
-detector = DBNet(pretrained_backbone=True).train(False).to(device)
-
-# Recognition: 7-block CNN + 2-layer BiLSTM -> CTC-ready logits.
-recognizer = CRNN(num_classes=96).train(False).to(device)
-
-# Standard NCHW batch. H and W must be multiples of 32.
-images = torch.randn(4, 3, 512, 512, device=device)
-
+det_weights = DBNet_ResNet18_VD_Weights.ICDAR2015
+detector = DBNet(weights=det_weights).eval()
+batch = det_weights.transforms()(image)[None]                     # (1, 3, H', W'), multiples of 32
 with torch.no_grad():
-    detection = detector(images)
+    detection = detector(batch)                                   # DBNetOutput(probability, threshold)
+quads = DBPostProcessor(**det_weights.meta["postprocess"]).quadrilaterals(detection)[0]  # (K, 4, 2)
+quads = quads * torch.tensor([image.shape[2] / batch.shape[3], image.shape[1] / batch.shape[2]])
 
-# Typed output -- no string keys, no positional unpacking.
-print(detection.probability.shape)   # torch.Size([4, 1, 512, 512])
-print(detection.threshold.shape)     # torch.Size([4, 1, 512, 512])
-
-# Recognizer expects 32-tall crops; sequence length T = W // 4.
-crops = torch.randn(4, 3, 32, 128, device=device)
-logits = recognizer(crops)           # torch.Size([32, 4, 96])
-
-# Logits flow directly into nn.CTCLoss after a log_softmax.
-log_probs = logits.log_softmax(dim=-1)
+rec_weights = CRNN_ResNet34_VD_Weights.MJSYNTH_ICDAR2015_TOTALTEXT_MLT19
+recognizer = CRNN(weights=rec_weights).eval()
+page = rec_weights.transforms().normalize(image)[None].float()
+crops, _ = crop_quads(page, quads, torch.zeros(len(quads), dtype=torch.long), height=32, max_width=320)
+with torch.no_grad():
+    logits = recognizer(crops)                                    # (T, K, num_classes), CTC-ready
+charset = load_charset(rec_weights.meta["charset"], rec_weights.meta["num_classes"])
+texts = build_decoder(rec_weights, charset)(logits)               # beam search + character LM
 ```
 
 ### Augmenting text polygons with `torchvision.transforms.v2`
@@ -139,33 +138,18 @@ program = export(DBNet(backbone="resnet18_vd").eval(), (torch.randn(1, 3, 736, 1
 the detector only. Compiled outputs match eager to ~1e-3 (Inductor reorders floating-point
 operations); published metrics are measured in eager mode.
 
-### Document-level container
-
-```python
-from torchocr import DocumentTensor
-
-doc = DocumentTensor(
-    pixels=images[0],            # (3, H, W)
-    text=[],                     # filled by the pipeline
-    bounding_boxes=None,         # filled by the detector
-)
-doc = doc.to(device)             # value-semantics, returns a new instance
-```
-
 ## Architecture
 
 | Component | Module | What it is |
 | --- | --- | --- |
-| `DBNet` | `torchocr.models.detection` | Differentiable Binarization detector with a ResNet-18 backbone, top-down FPN neck (256 channels per level), and twin probability/threshold heads at full input resolution. Outputs a typed `DBNetOutput` dataclass. |
-| `CRNN` | `torchocr.models.recognition` | Convolutional Recurrent Network: VGG-style 7-block CNN, two stacked bidirectional LSTMs (hidden=256), linear classifier. Returns CTC-ready logits of shape `(T, B, num_classes)` with closed-form `T = W // 4`. |
-| `DocumentTensor` | `torchocr.core.structures` | A dataclass bundling pixels, recognized text, and bounding boxes, with a `.to(device)` that mirrors `nn.Module` semantics. |
+| `DBNet` | `torchocr.models` | Differentiable Binarization detector: ResNet-18-VD + FPN or MobileNetV3-large ×0.5 + RSEFPN backbone, probability and threshold heads. Returns a typed `DBNetOutput`. |
+| `CRNN` | `torchocr.models` | Convolutional recurrent recognizer: ResNet-34-VD (or VGG-style) CNN, two bidirectional LSTMs, linear classifier. Returns CTC logits `(T, B, num_classes)`. |
+| `DBPostProcessor` | `torchocr` | Probability map → rotated word quads in reading order. |
+| `CTCGreedyDecoder`, `CTCBeamDecoder`, `CharNGramLM` | `torchocr.decoders` | CTC decoding, optionally fused with a character language model. |
+| `OCRPipeline`, `DocumentTensor` | `torchocr` | Composition of the stages; a dataclass holding the input image, texts, quads, boxes and confidences. |
 
-Both models enforce their input contracts at runtime:
-
-- `DBNet` requires `(B, 3, H, W)` with `H, W ≡ 0 (mod 32)`.
-- `CRNN` requires `(B, C, 32, W)` — exactly 32 pixels tall.
-
-Mismatched inputs raise `ValueError` with the offending shape — a debugging aid worth its weight.
+Both models enforce their input contracts at runtime (`DBNet`: `(B, 3, H, W)` with `H, W ≡ 0 (mod 32)`;
+`CRNN`: `(B, 3, 32, W)`) and raise `ValueError` with the offending shape.
 
 ## Status
 
@@ -221,17 +205,12 @@ pip install -e ".[docs]"
 sphinx-build -b html docs docs/_build/html   # TORCHOCR_DOCS_GALLERY=0 skips running the examples
 ```
 
-## Verifying the install
+## Running the tests
 
 ```bash
-python scripts/test_inference.py
-# probability: (1, 1, 512, 512)
-# threshold:   (1, 1, 512, 512)
-# logits:      (32, 1, 96)
-# OK
+pip install -e ".[test]"
+pytest
 ```
-
-Exit code 0 means both architectures are wired correctly on your machine.
 
 ## Contributing
 
