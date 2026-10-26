@@ -5,7 +5,7 @@ import math
 import pytest
 import torch
 
-from torchocr.ops import crop_quads, order_quad_vertices, polygon_area, quad_to_box
+from torchocr.ops import crop_quads, order_quad_vertices, polygon_area, quad_to_box, reading_order
 
 
 def _rotated_quad(cx: float, cy: float, w: float, h: float, degrees: float) -> torch.Tensor:
@@ -139,3 +139,32 @@ def test_crop_contract_errors():
         crop_quads(page, torch.zeros(1, 5, 2), torch.tensor([0]), 8, 16)
     with pytest.raises(ValueError, match=r"batch_idx"):
         crop_quads(page, quad, torch.tensor([0, 0]), 8, 16)
+
+
+# === reading_order ===
+
+
+def _word(x: float, y: float, w: float = 40, h: float = 20, slope: float = 0.0) -> list[list[float]]:
+    return [[x, y], [x + w, y + slope * w], [x + w, y + h + slope * w], [x, y + h]]
+
+
+def test_reading_order_lines_top_to_bottom_words_left_to_right():
+    words = {"c": _word(10, 60), "b": _word(110, 12), "d": _word(60, 58), "a": _word(10, 10)}
+    names = list(words)
+    order = reading_order(torch.tensor(list(words.values())))
+    assert [names[i] for i in order] == ["a", "b", "c", "d"]
+
+
+def test_reading_order_follows_a_slanted_line():
+    # One line rising to the right by 0.2 px per px: its last word sits higher than the next line's
+    # first word would if lines were split by a fixed y band.
+    line = [_word(10 + 50 * k, 100 - 10 * k, slope=-0.2) for k in range(6)]
+    below = [_word(10, 140)]
+    order = reading_order(torch.tensor(below + line[::-1]))
+    assert order.tolist() == [6, 5, 4, 3, 2, 1, 0]
+
+
+def test_reading_order_empty_and_contract():
+    assert reading_order(torch.zeros(0, 4, 2)).tolist() == []
+    with pytest.raises(ValueError, match=r"\(K, P, 2\)"):
+        reading_order(torch.zeros(2, 4, 2, 2))
