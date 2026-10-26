@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-26
+
+Synthetic data, polygon-aware augmentation and a documentation site. Every number is reproducible with
+`references/` and published with its checkpoint at https://huggingface.co/BryanBradfo/torchocr-weights.
+
+| Test set (end-to-end hmean, image → text) | v0.2.0 | v0.3.0 | v0.4.0 |
+| --- | --- | --- | --- |
+| ICDAR-2015 (street scenes) | 0.578 | 0.649 | **0.665** |
+| Total-Text (curved text) | — | 0.585 | **0.585** |
+| FUNSD (scanned forms) | — | 0.715 | **0.722** |
+
+v0.4.0 pairs `DBNet_ResNet18_VD_Weights.ICDAR2015` with the new
+`CRNN_ResNet34_VD_Weights.MJSYNTH_ICDAR2015_TOTALTEXT_MLT19`, its beam-search decoder and
+`min_text_score=0.8`. The 0.65 ICDAR-2015 target missed by v0.3.0 is reached; nothing was tuned on a
+test set.
+
 ### Added
 - `CRNN_ResNet34_VD_Weights.MJSYNTH_ICDAR2015_TOTALTEXT_MLT19`: the v0.3 scene recognizer trained 6
   more epochs with MJSynth synthetic words mixed in. Word accuracy (beam + LM) 0.799 on ICDAR-2015

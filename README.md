@@ -43,12 +43,12 @@ from torchocr import OCRPipeline, load_image
 
 pipeline = OCRPipeline.from_pretrained(
     detector_weights="DBNet_ResNet18_VD_Weights.ICDAR2015",           # scene text, English
-    recognizer_weights="CRNN_ResNet34_VD_Weights.ICDAR2015_TOTALTEXT_MLT19",  # Latin scene text
+    recognizer_weights="CRNN_ResNet34_VD_Weights.MJSYNTH_ICDAR2015_TOTALTEXT_MLT19",  # Latin scene text
     device="cuda",                                                      # or "cpu" (~4 s/page)
     min_text_score=0.8,                                                 # drop unreadable regions
 )
 doc = pipeline(load_image("photo.jpg"))
-doc.text        # list[str], one per region
+doc.text        # list[str], one per region, in reading order
 doc.polygons    # (K, 4, 2) rotated quads, reading order, in input pixels
 doc.scores      # (K,) recognition confidence
 ```
@@ -170,14 +170,17 @@ Mismatched inputs raise `ValueError` with the offending shape — a debugging ai
 | Capability | State |
 | --- | --- |
 | `DBNet` / `CRNN` architectures + shape contracts | ✅ Implemented |
-| Pretrained weights (`*_Weights` enums, hash-checked, on [Hugging Face](https://huggingface.co/BryanBradfo/torchocr-weights)) | ✅ 4 PaddleOCR conversions + 1 torchocr-trained detector |
+| Pretrained weights (`*_Weights` enums, hash-checked, on [Hugging Face](https://huggingface.co/BryanBradfo/torchocr-weights)) | ✅ 4 PaddleOCR conversions + 5 torchocr-trained checkpoints |
 | DB post-processing (contours → rotated quads) | ✅ Implemented |
 | `torchocr.ops.crop_quads` (batched perspective rectification) | ✅ Implemented |
 | `torchocr.metrics` (ICDAR hmean, word accuracy / CER) and `torchocr.datasets.ICDAR2015` | ✅ Implemented |
 | DB training (`references/detection/train.py`) | ✅ Implemented |
 | CTC greedy and beam-search decoding (character n-gram LM) | ✅ Implemented |
 | Datasets: ICDAR-2015, Total-Text, FUNSD, LMDB word crops | ✅ Implemented |
-| End-to-end `OCRPipeline.from_pretrained` (image → text) | ✅ Implemented |
+| End-to-end `OCRPipeline.from_pretrained` (image → text, reading order) | ✅ Implemented |
+| Polygon-aware augmentation on `torchvision.transforms.v2` (`torchocr.transforms.v2`) | ✅ Implemented |
+| Synthetic pre-training data (MJSynth via Parquet → LMDB) | ✅ Implemented |
+| Sphinx documentation site with example gallery (`docs/`, `gallery/`) | ✅ Implemented |
 
 Benchmarks (official IoU protocol, reproducible with `references/`; fine-tuned weights are the last epoch,
 thresholds chosen on training splits only):
@@ -190,25 +193,24 @@ thresholds chosen on training splits only):
 
 | Recognition (word accuracy on ground-truth words) | ICDAR-2015 | Total-Text |
 | --- | --- | --- |
-| `CRNN_ResNet34_VD_Weights.ICDAR2015_TOTALTEXT_MLT19` + beam search & char LM | **0.791** | **0.802** |
+| `CRNN_ResNet34_VD_Weights.MJSYNTH_ICDAR2015_TOTALTEXT_MLT19` + beam search & char LM | **0.799** | **0.819** |
+| `CRNN_ResNet34_VD_Weights.ICDAR2015_TOTALTEXT_MLT19` + beam search & char LM | 0.791 | 0.802 |
 | `CRNN_ResNet34_VD_Weights.ICDAR2015` (greedy) | 0.738 | |
 | `CRNN_ResNet34_VD_Weights.PPOCR_SERVER_V2` (converted, greedy) | 0.665 | 0.701 |
 
 End to end (`OCRPipeline`, image → text; a word counts when detected *and* read correctly,
 case-insensitive, generic vocabulary; `references/end2end/evaluate.py`), with the two bold models and
-`min_text_score=0.8`: **0.649** on ICDAR-2015 (0.219 with the converted PaddleOCR weights), **0.585** on
-Total-Text and **0.715** on FUNSD scanned forms; ~55 ms per street image on a laptop GPU.
+`min_text_score=0.8`: **0.665** on ICDAR-2015 (0.219 with the converted PaddleOCR weights), **0.585** on
+Total-Text and **0.722** on FUNSD scanned forms; ~60 ms per street image on a laptop GPU.
 
 `weights.meta` documents each checkpoint's provenance, license, preprocessing and known limits.
 
 ## Roadmap
 
-- **Pretrained weights**: Detection weights trained on ICDAR-2015 + Total-Text + SynthText; recognition weights covering ASCII printable + a multilingual variant.
-- **CTC decoding**: Greedy and prefix-beam decoders with optional KenLM/n-gram fusion, distributed as a `torchocr.decoders` submodule.
-- **Polygon extraction**: Batched, vectorized DB post-processing — Vatti clipping in pure PyTorch, no OpenCV runtime dependency.
-- **Pipeline orchestration**: A `torchocr.pipelines.OCRPipeline` that chains detector, polygon extractor, crop normalizer, and recognizer behind a single `__call__` — Hugging Face-style ergonomics.
-- **Training utilities**: `DBLoss` (BCE + L1 + dice), CTC training helpers, ICDAR/Total-Text dataset wrappers.
-- **Quantization & export**: `torch.ao.quantization` integration and clean ONNX export for both models.
+- **Distribution**: PyPI release (`pip install torchocr`) and a hosted documentation site.
+- **Detection**: detectors pre-trained on SynthText and fine-tuned on curved text (Total-Text is the weakest benchmark).
+- **Recognition**: an ASCII-only recognizer head and a multilingual variant; an attention/transformer recognizer.
+- **Deployment**: `torch.ao` quantization and ONNX / `torch.export` packaging of both models.
 
 ## Documentation
 
