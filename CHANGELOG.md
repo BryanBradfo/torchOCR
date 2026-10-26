@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- Random-initialization demos and smoke scripts from before the weights API (`scripts/infer.py`,
+  `scripts/test_inference.py`, `scripts/test_full_ocr.py`, `scripts/test_converted_dbnet.py`,
+  `examples/demo_inference.py`, `examples/demo_pdf.py`); `OCRPipeline.from_pretrained`, the test
+  suite and the documentation gallery replace them. The PaddleOCR converters stay in `scripts/`.
+
+### Changed
+- README and CONTRIBUTING: the building-blocks example uses pretrained weights end to end; the
+  architecture table, test and documentation commands and branch naming are up to date.
+
 ## [0.4.1] - 2026-10-26
 
 First release on PyPI (`pip install torchocr`). No library change since 0.4.0.
