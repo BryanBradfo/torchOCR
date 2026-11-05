@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Page orientation: `torchocr.PageOrientation` predicts whether a page is turned 0, 90, 180 or 270
+  degrees and sets it upright; `OCRPipeline(orientation=...)` and
+  `OCRPipeline.from_pretrained(correct_orientation=True)` run it before detection, and
+  `DocumentTensor.rotation` records the angle. `torchocr.rotate_page` undoes a turn.
+- `torchocr.models.PPLCNet` (PP-LCNet x1.0) with `PPLCNet_x1_0_Weights.PPOCR_DOC_ORIENTATION`, PaddleOCR's
+  page-orientation classifier converted by `scripts/convert_paddle_pplcnet.py`. The converter reads
+  `.pdparams` without Paddle, through an unpickler that only accepts numpy arrays. DocLayNet test
+  (4999 pages × 4 orientations): accuracy 0.985; at `min_confidence=0.7`, chosen on DocLayNet
+  validation, 0.24% of upright pages are turned and 97.5% of turned pages are set upright.
+- `torchocr.transforms.ClassificationPreset` (resize the shorter side, center-crop, normalize) and
+  `references/orientation/evaluate.py`.
+
 ### Fixed
 - `import torchocr` no longer triggers PyMuPDF 2.x's `fitz` deprecation warning: PDFs are loaded
   through `import pymupdf` (requires `pymupdf>=1.24.3`).

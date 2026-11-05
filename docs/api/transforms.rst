@@ -10,6 +10,7 @@ Each weights entry's ``transforms()`` returns the preset it was trained with.
 
 .. autoclass:: DetectionPreset
 .. autoclass:: RecognitionPreset
+.. autoclass:: ClassificationPreset
 
 Training targets
 ----------------

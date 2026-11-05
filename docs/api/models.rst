@@ -30,6 +30,15 @@ Recognition
    :members:
    :undoc-members:
 
+Page orientation
+----------------
+
+.. autoclass:: PPLCNet
+.. autofunction:: pp_lcnet_x1_0
+.. autoclass:: PPLCNet_x1_0_Weights
+   :members:
+   :undoc-members:
+
 Weights API
 -----------
 
