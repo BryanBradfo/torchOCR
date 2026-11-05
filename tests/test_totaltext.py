@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 import torch
-from torchvision.io import write_png
+from PIL import Image
 
 from torchocr.datasets import TextDetectionTarget, TotalText
 
@@ -26,15 +26,21 @@ _GT = {
 }
 
 
+def _write_png(image: torch.Tensor, path: str) -> None:
+    """Save a (C, H, W) uint8 tensor losslessly (PNG bytes, whatever the extension)."""
+    pixels = image.permute(1, 2, 0).numpy()
+    Image.fromarray(pixels[:, :, 0] if pixels.shape[2] == 1 else pixels).save(path, format="PNG")
+
+
 @pytest.fixture
 def root(tmp_path: Path) -> Path:
     for split in ("Train", "Test"):
         (tmp_path / "Images" / split).mkdir(parents=True)
         (tmp_path / "txt_format" / split).mkdir(parents=True)
     for stem, gt in _GT.items():
-        write_png(torch.zeros(3, 8, 8, dtype=torch.uint8), str(tmp_path / "Images" / "Train" / f"{stem}.jpg"))
+        _write_png(torch.zeros(3, 8, 8, dtype=torch.uint8), str(tmp_path / "Images" / "Train" / f"{stem}.jpg"))
         (tmp_path / "txt_format" / "Train" / f"poly_gt_{stem}.txt").write_text(gt)
-    write_png(torch.zeros(3, 8, 8, dtype=torch.uint8), str(tmp_path / "Images" / "Test" / "img1.JPG"))
+    _write_png(torch.zeros(3, 8, 8, dtype=torch.uint8), str(tmp_path / "Images" / "Test" / "img1.JPG"))
     (tmp_path / "txt_format" / "Test" / "poly_gt_img1.txt").write_text("")
     return tmp_path
 

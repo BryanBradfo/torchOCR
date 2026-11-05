@@ -61,7 +61,80 @@ def test_load_image_converts_grayscale_and_rgba_to_rgb(tmp_path):
     Image.new("RGBA", (20, 10), (10, 20, 30, 0)).save(tmp_path / "rgba.png")
     assert load_image(tmp_path / "gray.png").shape == (3, 10, 20)
     assert load_image(tmp_path / "rgba.png").shape == (3, 10, 20)
+    assert load_image(tmp_path / "gray.png", mode="UNCHANGED").shape == (1, 10, 20)
+    assert load_image(tmp_path / "rgba.png", mode="UNCHANGED").shape == (4, 10, 20)
+    # torchvision's enum is still accepted.
     assert load_image(tmp_path / "gray.png", mode=ImageReadMode.UNCHANGED).shape == (1, 10, 20)
+
+
+def test_load_image_reads_bytes_tiff_and_16_bit_scans(tmp_path):
+    import numpy as np
+    from PIL import Image
+
+    from torchocr.io import load_image
+
+    rgb = np.arange(10 * 20 * 3, dtype=np.uint8).reshape(10, 20, 3)
+    Image.fromarray(rgb).save(tmp_path / "scan.tif")
+    expected = torch.from_numpy(rgb).permute(2, 0, 1)
+    assert torch.equal(load_image(tmp_path / "scan.tif"), expected)
+    data = (tmp_path / "scan.tif").read_bytes()
+    assert torch.equal(load_image(data), expected)
+    assert torch.equal(load_image(torch.frombuffer(bytearray(data), dtype=torch.uint8)), expected)
+
+    deep = np.full((10, 20), 0xABCD, dtype=np.uint16)
+    Image.fromarray(deep).save(tmp_path / "deep.png")
+    assert load_image(tmp_path / "deep.png", mode="UNCHANGED").unique().tolist() == [0xAB]
+
+
+def test_load_image_applies_exif_orientation_unless_asked_not_to(tmp_path):
+    from PIL import Image
+
+    from torchocr.io import load_image
+
+    image = Image.new("RGB", (20, 10))
+    exif = image.getexif()
+    exif[0x0112] = 6  # stored sideways: viewers turn it 90 degrees clockwise
+    image.save(tmp_path / "phone.jpg", exif=exif)
+    assert load_image(tmp_path / "phone.jpg").shape == (3, 20, 10)
+    assert load_image(tmp_path / "phone.jpg", apply_exif_orientation=False).shape == (3, 10, 20)
+
+
+def test_load_image_refuses_formats_outside_the_allow_list(tmp_path):
+    """EPS would be handed to Ghostscript: it must be refused before any parsing."""
+    from PIL import UnidentifiedImageError
+
+    from torchocr.io import load_image
+
+    eps = b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 10 10\nshowpage\n"
+    with pytest.raises(UnidentifiedImageError):
+        load_image(eps)
+
+
+def test_load_image_rejects_unknown_modes(tmp_path):
+    from torchocr.io import load_image
+
+    with pytest.raises(ValueError, match="mode"):
+        load_image(tmp_path / "missing.png", mode="CMYK")
+
+
+def test_image_decoding_does_not_use_torchvision_io(tmp_path):
+    """torchvision deprecated its image decoders in 0.29; torchocr must not depend on them.
+
+    The decoders are removed before torchocr is imported, in a fresh interpreter, so that a
+    ``from torchvision.io import decode_image`` anywhere in torchocr would pick up the stub.
+    """
+    script = f"""
+import torchvision.io
+def removed(*args, **kwargs):
+    raise AssertionError("torchvision.io image decoding was called")
+for name in ("decode_image", "read_image", "decode_jpeg", "decode_png", "read_file"):
+    setattr(torchvision.io, name, removed)
+from PIL import Image
+import torchocr.datasets, torchocr.io
+Image.new("RGB", (4, 4)).save({str(tmp_path / "a.png")!r})
+assert torchocr.io.load_image({str(tmp_path / "a.png")!r}).shape == (3, 4, 4)
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
 
 
 def test_import_emits_no_pymupdf_deprecation():

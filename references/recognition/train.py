@@ -31,7 +31,7 @@ import cv2
 import numpy as np
 import torch
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
-from torchvision.io import ImageReadMode, read_image
+from torchocr.io.image import decode_image
 
 from torchocr import CRNNLoss, CTCGreedyDecoder, load_charset
 from torchocr.datasets import ICDAR2015, LMDBWords, TotalText
@@ -81,7 +81,7 @@ class WordCrops(Dataset):
 
     def __getitem__(self, i: int) -> tuple[torch.Tensor, list[int], str]:
         image_idx, quad, label, text = self.words[i]
-        page = self.preset.normalize(read_image(str(self.dataset.image_paths[image_idx]), mode=ImageReadMode.RGB))
+        page = self.preset.normalize(decode_image(self.dataset.image_paths[image_idx]))
         if self.jitter > 0:
             height = torch.linalg.vector_norm(quad[0] - quad[3])
             quad = quad + (torch.rand(4, 2) * 2 - 1) * self.jitter * height

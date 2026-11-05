@@ -5,9 +5,15 @@ from pathlib import Path
 
 import pytest
 import torch
-from torchvision.io import write_png
+from PIL import Image
 
 from torchocr.datasets import FUNSD
+
+
+def _write_png(image: torch.Tensor, path: str) -> None:
+    """Save a (C, H, W) uint8 tensor losslessly (PNG bytes, whatever the extension)."""
+    pixels = image.permute(1, 2, 0).numpy()
+    Image.fromarray(pixels[:, :, 0] if pixels.shape[2] == 1 else pixels).save(path, format="PNG")
 
 
 @pytest.fixture
@@ -22,7 +28,7 @@ def root(tmp_path: Path) -> Path:
          "words": [{"box": [5, 5, 9, 9], "text": ""}]},
     ]}
     for stem in ("doc_10", "doc_9"):
-        write_png(torch.full((1, 40, 90), 200, dtype=torch.uint8), str(tmp_path / "testing_data" / "images" / f"{stem}.png"))
+        _write_png(torch.full((1, 40, 90), 200, dtype=torch.uint8), str(tmp_path / "testing_data" / "images" / f"{stem}.png"))
         (tmp_path / "testing_data" / "annotations" / f"{stem}.json").write_text(json.dumps(form))
     return tmp_path
 

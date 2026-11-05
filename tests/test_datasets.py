@@ -4,9 +4,15 @@ from pathlib import Path
 
 import pytest
 import torch
-from torchvision.io import write_png
+from PIL import Image
 
 from torchocr.datasets import ICDAR2015, TextDetectionTarget
+
+
+def _write_png(image: torch.Tensor, path: str) -> None:
+    """Save a (C, H, W) uint8 tensor losslessly (PNG bytes, whatever the extension)."""
+    pixels = image.permute(1, 2, 0).numpy()
+    Image.fromarray(pixels[:, :, 0] if pixels.shape[2] == 1 else pixels).save(path, format="PNG")
 
 
 def _write_split(root: Path, images_dir: str, gt_dir: str, gts: dict[int, str]) -> None:
@@ -16,7 +22,7 @@ def _write_split(root: Path, images_dir: str, gt_dir: str, gts: dict[int, str]) 
         image = torch.full((3, 24, 40), idx, dtype=torch.uint8)
         # ICDAR ships .jpg; PNG bytes under a .jpg name decode identically
         # and keep pixel values exact for the assertion below.
-        write_png(image, str(root / images_dir / f"img_{idx}.jpg"))
+        _write_png(image, str(root / images_dir / f"img_{idx}.jpg"))
         (root / gt_dir / f"gt_img_{idx}.txt").write_bytes(content.encode("utf-8-sig"))
 
 
