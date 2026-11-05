@@ -11,6 +11,7 @@ from .decoders import build_decoder
 from .models import CRNN, CRNN_ResNet34_VD_Weights, DBNet, DBNet_MobileNetV3_Large_05_Weights, WeightsEnum, get_weight
 from .models.detection import DBNetOutput
 from .ops import crop_quads, quad_to_box
+from .orientation import PageOrientation
 from .postprocess import DBPostProcessor
 from .transforms import RecognitionPreset
 
@@ -24,6 +25,8 @@ class OCRPipeline:
 
     Composes a detector, post-processor, recognizer, and decoder:
 
+    0. ``orientation`` (if given) sets a page scanned sideways or upside
+       down upright; every later step sees the upright page.
     1. ``detector_transforms`` (if given) resizes/normalizes the image for
        the detector, e.g. ``detector_weights.transforms()``.
     2. The post-processor yields text regions. Rotated quads are used when it
@@ -58,6 +61,8 @@ class OCRPipeline:
             (``DocumentTensor.scores``) is below this value. ``None`` (default)
             keeps every region. 0.8 maximizes ICDAR-2015 *training*-split
             end-to-end hmean for the published scene-text models.
+        orientation: Optional :class:`~torchocr.PageOrientation` run before
+            detection. Default ``None`` (pages are read as given).
 
     Without presets the input is fed to both models as-is, so it must
     already be normalized and sized for the detector (the v0.1 behavior).
@@ -75,6 +80,7 @@ class OCRPipeline:
         recognizer_transforms: RecognitionPreset | None = None,
         recognizer_batch_size: int = 64,
         min_text_score: float | None = None,
+        orientation: PageOrientation | None = None,
     ) -> None:
         if recognizer_batch_size < 1:
             raise ValueError(f"recognizer_batch_size must be >= 1; got {recognizer_batch_size}.")
@@ -101,6 +107,7 @@ class OCRPipeline:
         self.recognizer_transforms = recognizer_transforms
         self.recognizer_batch_size = recognizer_batch_size
         self.min_text_score = min_text_score
+        self.orientation = orientation
 
     @classmethod
     def from_pretrained(
@@ -110,6 +117,7 @@ class OCRPipeline:
         device: torch.device | str | None = None,
         decoder: str = "auto",
         min_text_score: float | None = None,
+        correct_orientation: bool = False,
     ) -> "OCRPipeline":
         """Assemble a pipeline from published weights, in eval mode.
 
@@ -127,6 +135,8 @@ class OCRPipeline:
                 ``recognizer_weights.meta["decoder"]`` (e.g. beam search with a
                 language model), else greedy; ``"greedy"`` or ``"beam"`` force one.
             min_text_score: See :class:`OCRPipeline`. Default ``None`` (keep all).
+            correct_orientation: Set pages upright first with
+                ``PageOrientation.from_pretrained()``. Default ``False``.
         """
         det_weights = _resolve(detector_weights, DBNet_MobileNetV3_Large_05_Weights)
         rec_weights = _resolve(recognizer_weights, CRNN_ResNet34_VD_Weights)
@@ -141,18 +151,24 @@ class OCRPipeline:
             detector_transforms=det_weights.transforms(),
             recognizer_transforms=rec_weights.transforms(),
             min_text_score=min_text_score,
+            orientation=PageOrientation.from_pretrained(device=device) if correct_orientation else None,
         )
 
     def __call__(self, image: Tensor) -> DocumentTensor:
         """Run the full pipeline on a single ``(3, H, W)`` image.
 
         With presets, ``image`` is a ``uint8`` RGB tensor (as returned by
-        :func:`torchocr.load_image`). It is returned unmodified in
-        ``DocumentTensor.pixels``; regions are in its pixel coordinates.
+        :func:`torchocr.load_image`). It is returned in
+        ``DocumentTensor.pixels`` -- unmodified, or set upright when
+        ``orientation`` turned it (``DocumentTensor.rotation``); regions are
+        in the pixel coordinates of ``pixels``.
         """
         if image.ndim != 3 or image.shape[0] != 3:
             raise ValueError(f"Expected (3, H, W) image; got {tuple(image.shape)}.")
         device = next(self.detector.parameters(), image).device
+        rotation = 0
+        if self.orientation is not None:
+            image, rotation = self.orientation.upright(image)
 
         with torch.inference_mode():
             pixels = image.to(device)
@@ -160,7 +176,7 @@ class OCRPipeline:
             detection = self.detector(detector_input)
             quads = self._regions(detection).to(device=device, dtype=torch.float32)
             if quads.shape[0] == 0:
-                return DocumentTensor(pixels=image)
+                return DocumentTensor(pixels=image, rotation=rotation)
             scale = torch.tensor(
                 [pixels.shape[-1] / detector_input.shape[-1], pixels.shape[-2] / detector_input.shape[-2]],
                 device=device,
@@ -189,7 +205,12 @@ class OCRPipeline:
                 texts = [t for t, k in zip(texts, keep.tolist()) if k]
 
         return DocumentTensor(
-            pixels=image, text=texts, bounding_boxes=quad_to_box(quads), polygons=quads, scores=text_scores
+            pixels=image,
+            text=texts,
+            bounding_boxes=quad_to_box(quads),
+            polygons=quads,
+            scores=text_scores,
+            rotation=rotation,
         )
 
     def _regions(self, detection: DBNetOutput) -> Tensor:

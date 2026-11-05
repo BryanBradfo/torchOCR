@@ -7,6 +7,7 @@ from .core.structures import DocumentTensor
 from .decoders import CharNGramLM, CTCBeamDecoder, CTCGreedyDecoder
 from .io import load_image, load_pdf
 from .losses import CRNNLoss, DBLoss
+from .orientation import PageOrientation, rotate_page
 from .pipelines import OCRPipeline
 from .postprocess import DBPostProcessor
 
@@ -19,8 +20,10 @@ __all__ = [
     "DBPostProcessor",
     "DocumentTensor",
     "OCRPipeline",
+    "PageOrientation",
     "load_image",
     "load_charset",
     "load_pdf",
     "load_ppocr_keys_v1",
+    "rotate_page",
 ]

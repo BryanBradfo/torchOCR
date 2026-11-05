@@ -15,6 +15,8 @@ from torchocr.models import (
     DBNet,
     DBNet_MobileNetV3_Large_05_Weights,
     DBNet_ResNet18_VD_Weights,
+    PPLCNet,
+    PPLCNet_x1_0_Weights,
     WeightsEnum,
     get_model,
     get_model_weights,
@@ -26,16 +28,28 @@ from torchocr.models import hub
 
 ALL_WEIGHTS = [
     w
-    for enum in (DBNet_ResNet18_VD_Weights, DBNet_MobileNetV3_Large_05_Weights, CRNN_ResNet34_VD_Weights)
+    for enum in (
+        DBNet_ResNet18_VD_Weights,
+        DBNet_MobileNetV3_Large_05_Weights,
+        CRNN_ResNet34_VD_Weights,
+        PPLCNet_x1_0_Weights,
+    )
     for w in enum
 ]
 
 
+def _architecture(weights: WeightsEnum) -> nn.Module:
+    """A randomly initialised model matching ``weights``."""
+    if weights.meta["task"] == "detection":
+        return DBNet(backbone=weights.meta["backbone"])
+    if weights.meta["task"] == "page-orientation":
+        return PPLCNet(num_classes=len(weights.meta["categories"]))
+    return CRNN(num_classes=weights.meta["num_classes"], backbone=weights.meta["backbone"])
+
+
 def _random_state_dict(weights: WeightsEnum) -> dict[str, torch.Tensor]:
     """A state_dict with the right keys/shapes, built without downloading."""
-    if weights.meta["task"] == "detection":
-        return DBNet(backbone=weights.meta["backbone"]).state_dict()
-    return CRNN(num_classes=weights.meta["num_classes"], backbone=weights.meta["backbone"]).state_dict()
+    return _architecture(weights).state_dict()
 
 
 @pytest.fixture
@@ -68,11 +82,7 @@ def test_meta_contract(weights):
 
 @pytest.mark.parametrize("weights", ALL_WEIGHTS, ids=repr)
 def test_num_params_matches_architecture(weights):
-    model = (
-        DBNet(backbone=weights.meta["backbone"])
-        if weights.meta["task"] == "detection"
-        else CRNN(num_classes=weights.meta["num_classes"], backbone=weights.meta["backbone"])
-    )
+    model = _architecture(weights)
     assert sum(p.numel() for p in model.parameters()) == weights.meta["num_params"]
 
 
@@ -109,6 +119,7 @@ def test_list_models():
         "dbnet_mobilenet_v3_large_05",
         "dbnet_resnet18",
         "dbnet_resnet18_vd",
+        "pp_lcnet_x1_0",
     ]
 
 
@@ -233,3 +244,10 @@ def test_fully_qualified_weight_names_select_the_backbone(fake_download):
     assert DBNet(weights="DBNet_ResNet18_VD_Weights.ICDAR2015").backbone_name == "resnet18_vd"
     assert DBNet(weights="DBNet_MobileNetV3_Large_05_Weights.PPOCR_V3_EN").backbone_name == "mobilenet_v3_large_05"
     assert CRNN(weights="CRNN_ResNet34_VD_Weights.ICDAR2015").backbone_name == "resnet34_vd"
+
+
+def test_pplcnet_takes_its_classes_from_weights(fake_download):
+    model = PPLCNet(weights=PPLCNet_x1_0_Weights.DEFAULT)
+    assert model.fc.out_features == 4
+    with pytest.raises(ValueError, match="4 classes"):
+        PPLCNet(num_classes=2, weights="DEFAULT")

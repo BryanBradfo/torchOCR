@@ -44,7 +44,8 @@ class DocumentTensor:
     """Container for OCR-ready document data.
 
     Attributes:
-        pixels: The input image, unmodified.
+        pixels: The input image, unmodified -- or set upright when the
+            pipeline corrects page orientation (see ``rotation``).
         text: ``K`` recognized strings, one per region.
         bounding_boxes: ``(K, 4)`` axis-aligned ``(x1, y1, x2, y2)`` boxes.
         polygons: ``(K, 4, 2)`` rotated text quads in reading order
@@ -52,6 +53,8 @@ class DocumentTensor:
             post-processor provides them.
         scores: ``(K,)`` recognition confidence in ``[0, 1]``: the mean
             probability of the characters read (0 if none).
+        rotation: Clockwise angle (0, 90, 180 or 270) the input page was
+            turned by; ``pixels`` and every region are in the upright frame.
     """
 
     pixels: Tensor
@@ -59,6 +62,7 @@ class DocumentTensor:
     bounding_boxes: Tensor | None = None
     polygons: Tensor | None = None
     scores: Tensor | None = None
+    rotation: int = 0
 
     def to(self, *args: object, **kwargs: object) -> "DocumentTensor":
         """Return a copy moved to the requested device/dtype."""
@@ -69,4 +73,5 @@ class DocumentTensor:
             bounding_boxes=move(self.bounding_boxes),
             polygons=move(self.polygons),
             scores=move(self.scores),
+            rotation=self.rotation,
         )

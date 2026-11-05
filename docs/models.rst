@@ -33,3 +33,12 @@ Case-insensitive word accuracy on the test words, cropped from the full images a
 ground-truth quadrilaterals (:func:`torchocr.ops.crop_quads`).
 
 .. weights-table:: recognition
+
+Page orientation
+----------------
+
+Each of the 4999 DocLayNet test pages is fed upright and turned 90, 180 and 270 degrees. Accuracy is
+the classifier's argmax; the last two columns are what :class:`torchocr.PageOrientation` does at the
+weights' ``min_confidence``, which was chosen on DocLayNet validation.
+
+.. weights-table:: page-orientation
