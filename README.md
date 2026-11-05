@@ -1,24 +1,57 @@
 # torchOCR
 
-**A PyTorch-native, end-to-end OCR library — batchable, GPU-first, and free of clunky C++ runtimes.**
+**Text detection and recognition for PyTorch, built the way torchvision is: pretrained weights,
+typed outputs, and every stage an `nn.Module` you can replace, fine-tune or export.**
 
-[![CI](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml/badge.svg)](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml) · [![PyPI](https://img.shields.io/pypi/v/torchocr)](https://pypi.org/project/torchocr/) · [ python · 3.10+ ] · [ pytorch · 2.0+ ] · [docs](https://bryanbradfo.github.io/torchOCR/) · [ license · BSD-3-Clause ]
+[![CI](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml/badge.svg)](https://github.com/BryanBradfo/torchOCR/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/torchocr)](https://pypi.org/project/torchocr/)
+[![Docs](https://img.shields.io/badge/docs-online-blue)](https://bryanbradfo.github.io/torchOCR/)
+[![License](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE)
 
----
+```python
+from torchocr import OCRPipeline, load_image
 
-## Why torchOCR
+doc = OCRPipeline.from_pretrained()(load_image("page.jpg"))
+doc.text        # list[str], one per text region, in reading order
+```
 
-Every modern deep learning stack lives in PyTorch — except OCR. The dominant tools (Tesseract, PaddleOCR, EasyOCR) wrap C++ binaries, ship custom runtimes, or stitch together TensorFlow and ONNX detours that fight against PyTorch's batching, autograd, and `torch.compile`. The result is an ecosystem where reading text from an image is the only thing you can't do natively.
+## Results
 
-**torchOCR** is a clean-slate, pure-PyTorch OCR pipeline modeled after `torchvision`. Detection, recognition, and document-level data structures are first-class `nn.Module`s and dataclasses. Tensors stay on-device, batches stay batches, and the public API is small enough to read in an afternoon.
+Every published checkpoint is scored on public test sets, with the script that reproduces the number
+(`references/`). Scores below are for the scene-text detector and recognizer of the
+[Quickstart](#quickstart). End to end, a word counts only when it is both found and read correctly:
 
-## Philosophy
+| Test set | What it contains | End to end | Detection (hmean) | Recognition (word accuracy) |
+| --- | --- | --- | --- | --- |
+| [ICDAR-2015](https://rrc.cvc.uab.es/?ch=4) | street photos, small blurry words | 0.665 | 0.809 | 0.799 |
+| [Total-Text](https://github.com/cs-chan/Total-Text-Dataset) | curved text | 0.585 | 0.696 | 0.819 |
+| [FUNSD](https://guillaumejaume.github.io/FUNSD/) | scanned forms | 0.722 | 0.826 | |
 
-- **Pure PyTorch.** No Tesseract, no Leptonica, no ONNX intermediaries. Every layer is `nn.Module` you can subclass, fine-tune, or `state_dict`-load.
-- **PyTorch 2.0 first.** Every model FX-traces, `torch.export`s with dynamic sizes and `torch.compile`s — checked in CI, shape contracts included (see *Graph capture* below).
-- **Explicit shape contracts.** Outputs are typed dataclasses (`DBNetOutput`), not `Dict[str, Tensor]`. Every model documents its tensor shapes — and asserts them at runtime.
-- **Modular, torchvision-style API.** `from torchocr.models import DBNet, CRNN`. Models compose, swap, and re-export the way you'd expect from `torchvision.models`.
-- **Zero magic at import time.** No global state, no monkey-patching, no network calls unless you ask for them.
+About 60 ms per street image on a laptop GPU. Per-checkpoint numbers, protocols and known limits are in
+[Benchmarks](#benchmarks) and in each checkpoint's `weights.meta`.
+
+## When to use torchOCR
+
+torchOCR is for OCR inside a PyTorch system: batching pages on the GPU, fine-tuning one stage on your
+own documents, swapping in your own detector, or exporting with `torch.export`. It is a library, not a
+turnkey product. If you only need the most accurate text out of an image, use
+[PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) (especially for Chinese) or
+[EasyOCR](https://github.com/JaidedAI/EasyOCR) (many languages): their models are larger and better
+trained, and several of ours are converted from PaddleOCR.
+
+- **Only PyTorch at inference.** No Tesseract, no Paddle runtime, no ONNX Runtime. PaddleOCR weights
+  are converted once, at build time, by the scripts in `scripts/`.
+- **Typed, checked outputs.** Models return dataclasses (`DBNetOutput`, `DocumentTensor`), document
+  their tensor shapes and raise `ValueError` with the offending shape when the input is wrong.
+- **Ready for PyTorch 2.** Every model FX-traces, `torch.export`s with dynamic sizes and `torch.compile`s,
+  checked in CI.
+- **torchvision conventions.** `*_Weights` enums with hash-checked downloads from
+  [Hugging Face](https://huggingface.co/BryanBradfo/torchocr-weights), `weights.transforms()`, and
+  augmentation on `torchvision.transforms.v2`.
+- **Nothing happens at import.** No network calls, no global state, no monkey-patching.
+
+Current scope: printed text in Latin script and Chinese, on photos and document pages. Not covered:
+handwriting, layout analysis and table structure.
 
 ## Installation
 
@@ -170,26 +203,10 @@ operations); published metrics are measured in eager mode.
 Both models enforce their input contracts at runtime (`DBNet`: `(B, 3, H, W)` with `H, W ≡ 0 (mod 32)`;
 `CRNN`: `(B, 3, 32, W)`) and raise `ValueError` with the offending shape.
 
-## Status
+## Benchmarks
 
-| Capability | State |
-| --- | --- |
-| `DBNet` / `CRNN` architectures + shape contracts | ✅ Implemented |
-| Pretrained weights (`*_Weights` enums, hash-checked, on [Hugging Face](https://huggingface.co/BryanBradfo/torchocr-weights)) | ✅ 5 PaddleOCR conversions + 5 torchocr-trained checkpoints |
-| DB post-processing (contours → rotated quads) | ✅ Implemented |
-| `torchocr.ops.crop_quads` (batched perspective rectification) | ✅ Implemented |
-| `torchocr.metrics` (ICDAR hmean, word accuracy / CER) and `torchocr.datasets.ICDAR2015` | ✅ Implemented |
-| DB training (`references/detection/train.py`) | ✅ Implemented |
-| CTC greedy and beam-search decoding (character n-gram LM) | ✅ Implemented |
-| Datasets: ICDAR-2015, Total-Text, FUNSD, LMDB word crops | ✅ Implemented |
-| End-to-end `OCRPipeline.from_pretrained` (image → text, reading order) | ✅ Implemented |
-| Polygon-aware augmentation on `torchvision.transforms.v2` (`torchocr.transforms.v2`) | ✅ Implemented |
-| Synthetic pre-training data (MJSynth via Parquet → LMDB) | ✅ Implemented |
-| Sphinx documentation site with example gallery (`docs/`, `gallery/`) | ✅ Implemented |
-| Page orientation (0 / 90 / 180 / 270 degrees) before detection | ✅ Implemented |
-
-Benchmarks (official IoU protocol, reproducible with `references/`; fine-tuned weights are the last epoch,
-thresholds chosen on training splits only):
+Official IoU protocol, reproducible with `references/`. Fine-tuned weights are the last epoch, and
+thresholds are chosen on training splits only.
 
 | Detection (test hmean) | ICDAR-2015 | Total-Text | FUNSD |
 | --- | --- | --- | --- |
@@ -213,9 +230,10 @@ Total-Text and **0.722** on FUNSD scanned forms; ~60 ms per street image on a la
 
 ## Roadmap
 
+- **Recognition**: a stronger Latin recognizer (PP-OCR SVTR conversion), accented characters, an attention/transformer recognizer.
 - **Detection**: detectors pre-trained on SynthText and fine-tuned on curved text (Total-Text is the weakest benchmark).
-- **Recognition**: an ASCII-only recognizer head and a multilingual variant; an attention/transformer recognizer.
 - **Deployment**: `torch.ao` quantization and ONNX / `torch.export` packaging of both models.
+- **1.0**: a frozen public API with a deprecation policy.
 
 ## Documentation
 
@@ -239,4 +257,6 @@ Issues and PRs welcome. Each model in `src/torchocr/models/` documents its shape
 
 ## License
 
-BSD 3-Clause, like torchvision — see `LICENSE`.
+The code is BSD 3-Clause, see [`LICENSE`](LICENSE). Pretrained weights carry their own license, given in
+`weights.meta["license"]`: Apache-2.0 for the PaddleOCR conversions, research use only for the checkpoints
+torchocr fine-tuned on academic datasets (ICDAR-2015, Total-Text, MLT-2019, MJSynth). Third-party work is acknowledged in [`CREDITS.md`](CREDITS.md).

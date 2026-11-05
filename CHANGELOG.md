@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `torchocr.transforms.ClassificationPreset` (resize the shorter side, center-crop, normalize) and
   `references/orientation/evaluate.py`.
 
+### Changed
+- README: results on public test sets up front, when to use torchOCR rather than PaddleOCR or
+  EasyOCR, real status badges, and the license of each family of pretrained weights.
+
 ### Fixed
 - `import torchocr` no longer triggers PyMuPDF 2.x's `fitz` deprecation warning: PDFs are loaded
   through `import pymupdf` (requires `pymupdf>=1.24.3`).
