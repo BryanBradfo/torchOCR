@@ -135,3 +135,46 @@ class RecognitionPreset(nn.Module):
             f"height={self.height}, max_width={self.max_width}, mean={self.mean}, "
             f"std={self.std}, channel_order='{self.channel_order}'"
         )
+
+
+class ClassificationPreset(nn.Module):
+    """Resize, center-crop and normalize ``uint8`` RGB images for an image classifier.
+
+    The shorter side is scaled to ``resize_size`` (aspect ratio kept), then
+    the central ``crop_size`` square is kept: torchvision's ImageNet recipe,
+    which PaddleOCR's page-orientation classifier was trained with.
+
+    Args:
+        resize_size: Target length of the shorter side. Default 256.
+        crop_size: Side of the central square crop. Default 224.
+        mean: Per-channel mean applied after scaling to ``[0, 1]``.
+        std: Per-channel standard deviation.
+
+    Forward:
+        ``(..., 3, H, W)`` ``uint8`` RGB -> ``(..., 3, crop_size, crop_size)`` ``float32``.
+    """
+
+    def __init__(
+        self,
+        resize_size: int = 256,
+        crop_size: int = 224,
+        mean: tuple[float, float, float] = IMAGENET_MEAN,
+        std: tuple[float, float, float] = IMAGENET_STD,
+    ) -> None:
+        super().__init__()
+        self.resize_size = resize_size
+        self.crop_size = crop_size
+        self.mean = list(mean)
+        self.std = list(std)
+
+    def forward(self, image: Tensor) -> Tensor:
+        if image.ndim < 3 or image.shape[-3] != 3:
+            raise ValueError(f"Expected (..., 3, H, W) images; got {tuple(image.shape)}.")
+        if image.dtype != torch.uint8:
+            raise ValueError(f"Expected uint8 images; got {image.dtype}.")
+        image = F.center_crop(F.resize(image, self.resize_size, antialias=True), self.crop_size)
+        image = F.to_dtype(image, torch.float32, scale=True)
+        return F.normalize(image, self.mean, self.std)
+
+    def extra_repr(self) -> str:
+        return f"resize_size={self.resize_size}, crop_size={self.crop_size}, mean={self.mean}, std={self.std}"
