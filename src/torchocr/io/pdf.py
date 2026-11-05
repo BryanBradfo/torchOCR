@@ -1,8 +1,8 @@
-"""PDF loading via PyMuPDF (``import fitz``)."""
+"""PDF loading via PyMuPDF (``import pymupdf``)."""
 
 from pathlib import Path
 
-import fitz
+import pymupdf
 import numpy as np
 import torch
 from torch import Tensor
@@ -30,12 +30,12 @@ def load_pdf(path: str | Path, dpi: int = 200) -> list[Tensor]:
     if dpi <= 0:
         raise ValueError(f"dpi must be positive; got {dpi}.")
 
-    matrix = fitz.Matrix(dpi / 72.0, dpi / 72.0)
+    matrix = pymupdf.Matrix(dpi / 72.0, dpi / 72.0)
     pages: list[Tensor] = []
 
-    with fitz.open(str(path)) as document:
+    with pymupdf.open(str(path)) as document:
         for page in document:
-            pixmap = page.get_pixmap(matrix=matrix, colorspace=fitz.csRGB, alpha=False)
+            pixmap = page.get_pixmap(matrix=matrix, colorspace=pymupdf.csRGB, alpha=False)
             arr_hwc = np.frombuffer(pixmap.samples, dtype=np.uint8).reshape(
                 pixmap.height, pixmap.width, 3
             )

@@ -1,6 +1,9 @@
 """load_pdf round-trip: PyMuPDF synthesizes -> torchocr loads."""
 
-import fitz
+import subprocess
+import sys
+
+import pymupdf
 import pytest
 import torch
 
@@ -8,7 +11,7 @@ from torchocr import load_pdf
 
 
 def _write_synthetic_pdf(path, n_pages: int = 2) -> None:
-    document = fitz.open()
+    document = pymupdf.open()
     try:
         for i in range(n_pages):
             page = document.new_page(width=400, height=400)
@@ -59,3 +62,10 @@ def test_load_image_converts_grayscale_and_rgba_to_rgb(tmp_path):
     assert load_image(tmp_path / "gray.png").shape == (3, 10, 20)
     assert load_image(tmp_path / "rgba.png").shape == (3, 10, 20)
     assert load_image(tmp_path / "gray.png", mode=ImageReadMode.UNCHANGED).shape == (1, 10, 20)
+
+
+def test_import_emits_no_pymupdf_deprecation():
+    # PyMuPDF warns once per process when imported as `fitz`: check in a fresh interpreter.
+    subprocess.run(
+        [sys.executable, "-W", "error::FutureWarning", "-c", "import torchocr"], check=True
+    )
