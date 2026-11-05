@@ -62,6 +62,24 @@ use); words are rectified out of the original-resolution image with `torchocr.op
 (`from_pretrained()` with no arguments) pair the multilingual PP-OCRv3 detector with the
 Chinese + English recognizer, suited to documents.
 
+### Pages scanned sideways or upside down
+
+```python
+from torchocr import OCRPipeline, PageOrientation, load_image
+
+orientation = PageOrientation.from_pretrained()
+page, angle = orientation.upright(load_image("scan.jpg"))   # angle: 0, 90, 180 or 270 (clockwise)
+
+pipeline = OCRPipeline.from_pretrained(correct_orientation=True)  # or let the pipeline do it
+doc = pipeline(load_image("scan.jpg"))
+doc.rotation    # how far the page was turned; doc.pixels and the regions are upright
+```
+
+A 1.7 M-parameter classifier converted from PaddleOCR (~3 ms per page on a laptop GPU). On the 4999
+DocLayNet test pages, each fed in all four orientations, it is right 98.5% of the time; it only turns a
+page when it is at least 70% sure, which leaves 0.24% of upright pages wrongly turned and sets 97.5% of
+turned pages upright. It is meant for document pages, not street photos.
+
 ### Building blocks
 
 Every stage is an ordinary module or callable you can use, replace or fine-tune on its own:
@@ -146,6 +164,7 @@ operations); published metrics are measured in eager mode.
 | `CRNN` | `torchocr.models` | Convolutional recurrent recognizer: ResNet-34-VD (or VGG-style) CNN, two bidirectional LSTMs, linear classifier. Returns CTC logits `(T, B, num_classes)`. |
 | `DBPostProcessor` | `torchocr` | Probability map → rotated word quads in reading order. |
 | `CTCGreedyDecoder`, `CTCBeamDecoder`, `CharNGramLM` | `torchocr.decoders` | CTC decoding, optionally fused with a character language model. |
+| `PPLCNet`, `PageOrientation` | `torchocr.models`, `torchocr` | 4-way page-orientation classifier (PP-LCNet x1.0) and the step that sets pages upright before detection. |
 | `OCRPipeline`, `DocumentTensor` | `torchocr` | Composition of the stages; a dataclass holding the input image, texts, quads, boxes and confidences. |
 
 Both models enforce their input contracts at runtime (`DBNet`: `(B, 3, H, W)` with `H, W ≡ 0 (mod 32)`;
@@ -156,7 +175,7 @@ Both models enforce their input contracts at runtime (`DBNet`: `(B, 3, H, W)` wi
 | Capability | State |
 | --- | --- |
 | `DBNet` / `CRNN` architectures + shape contracts | ✅ Implemented |
-| Pretrained weights (`*_Weights` enums, hash-checked, on [Hugging Face](https://huggingface.co/BryanBradfo/torchocr-weights)) | ✅ 4 PaddleOCR conversions + 5 torchocr-trained checkpoints |
+| Pretrained weights (`*_Weights` enums, hash-checked, on [Hugging Face](https://huggingface.co/BryanBradfo/torchocr-weights)) | ✅ 5 PaddleOCR conversions + 5 torchocr-trained checkpoints |
 | DB post-processing (contours → rotated quads) | ✅ Implemented |
 | `torchocr.ops.crop_quads` (batched perspective rectification) | ✅ Implemented |
 | `torchocr.metrics` (ICDAR hmean, word accuracy / CER) and `torchocr.datasets.ICDAR2015` | ✅ Implemented |
@@ -167,6 +186,7 @@ Both models enforce their input contracts at runtime (`DBNet`: `(B, 3, H, W)` wi
 | Polygon-aware augmentation on `torchvision.transforms.v2` (`torchocr.transforms.v2`) | ✅ Implemented |
 | Synthetic pre-training data (MJSynth via Parquet → LMDB) | ✅ Implemented |
 | Sphinx documentation site with example gallery (`docs/`, `gallery/`) | ✅ Implemented |
+| Page orientation (0 / 90 / 180 / 270 degrees) before detection | ✅ Implemented |
 
 Benchmarks (official IoU protocol, reproducible with `references/`; fine-tuned weights are the last epoch,
 thresholds chosen on training splits only):
@@ -193,7 +213,6 @@ Total-Text and **0.722** on FUNSD scanned forms; ~60 ms per street image on a la
 
 ## Roadmap
 
-- **Distribution**: PyPI release (`pip install torchocr`) and a hosted documentation site.
 - **Detection**: detectors pre-trained on SynthText and fine-tuned on curved text (Total-Text is the weakest benchmark).
 - **Recognition**: an ASCII-only recognizer head and a multilingual variant; an attention/transformer recognizer.
 - **Deployment**: `torch.ao` quantization and ONNX / `torch.export` packaging of both models.

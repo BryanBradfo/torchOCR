@@ -18,6 +18,11 @@ COLUMNS = {
         ("ICDAR2015-test-gt-quads", "word_accuracy", "ICDAR-2015 word acc."),
         ("TotalText-test-gt-quads", "word_accuracy", "Total-Text word acc."),
     ],
+    "page-orientation": [
+        ("DocLayNet-test", "accuracy", "DocLayNet accuracy"),
+        ("DocLayNet-test", "upright_wrongly_turned", "Upright pages turned"),
+        ("DocLayNet-test", "turned_set_upright", "Turned pages set upright"),
+    ],
 }
 
 
@@ -32,13 +37,18 @@ def weights_for(task: str) -> list:
     return entries
 
 
+def _number(value: float) -> str:
+    """Three decimals, four for rates below 1% (0.0024 would print as 0.002)."""
+    return f"{value:.3f}" if value >= 0.01 else f"{value:.4f}"
+
+
 def render(task: str) -> list[str]:
     columns = COLUMNS[task]
     header = ["Weights", "Params"] + [label for _, _, label in columns]
     rows = []
     for w in weights_for(task):
         metrics = w.meta.get("_metrics", {})
-        values = [f"{metrics[ds][key]:.3f}" if key in metrics.get(ds, {}) else "—" for ds, key, _ in columns]
+        values = [_number(metrics[ds][key]) if key in metrics.get(ds, {}) else "—" for ds, key, _ in columns]
         rows.append([f"``{type(w).__name__}.{w.name}``", f"{w.meta['num_params'] / 1e6:.1f} M"] + values)
     lines = [".. list-table::", "   :header-rows: 1", ""]
     for row in [header] + rows:
