@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `torchocr.transforms.ClassificationPreset` (resize the shorter side, center-crop, normalize) and
   `references/orientation/evaluate.py`.
 
+### Fixed
+- `import torchocr` no longer triggers PyMuPDF 2.x's `fitz` deprecation warning: PDFs are loaded
+  through `import pymupdf` (requires `pymupdf>=1.24.3`).
+
 ## [0.4.1] - 2026-11-05
 
 First release on PyPI (`pip install torchocr`). No library change since 0.4.0.
