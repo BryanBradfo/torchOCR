@@ -10,7 +10,7 @@ import torch
 from torch.export import Dim, export
 from torch.fx import symbolic_trace
 
-from torchocr.models import CRNN, DBNet
+from torchocr.models import CRNN, DBNet, PPLCNet
 from torchocr.models.detection import DBNetOutput
 
 DETECTORS = ["resnet18", "resnet18_vd", "mobilenet_v3_large_05"]
@@ -50,6 +50,12 @@ def test_crnn_fx_trace(backbone):
     assert torch.allclose(traced(crops), model(crops), atol=1e-5)
 
 
+def test_pplcnet_fx_trace():
+    torch.manual_seed(0)
+    model, images = PPLCNet().eval(), torch.randn(2, 3, 224, 224)
+    assert torch.allclose(symbolic_trace(model)(images), model(images), atol=1e-5)
+
+
 def test_fx_traced_model_keeps_its_shape_contract():
     traced = symbolic_trace(_detector("resnet18_vd"))
     with pytest.raises(ValueError, match="divisible by 32"):
@@ -82,6 +88,14 @@ def test_crnn_export_with_dynamic_batch(backbone):
     assert torch.allclose(program.module()(crops), model(crops), atol=1e-5)
 
 
+def test_pplcnet_export_with_dynamic_batch():
+    torch.manual_seed(0)
+    model = PPLCNet().eval()
+    program = export(model, (torch.randn(2, 3, 224, 224),), dynamic_shapes=({0: Dim("batch", min=1, max=64)},))
+    images = torch.randn(5, 3, 224, 224)
+    assert torch.allclose(program.module()(images), model(images), atol=1e-5)
+
+
 # === torch.compile ===
 
 
@@ -99,3 +113,11 @@ def test_crnn_compiles(backbone):
     model, crops = _recognizer(backbone), torch.randn(2, 3, 32, 64)
     compiled = torch.compile(model, backend="aot_eager")
     assert torch.allclose(compiled(crops), model(crops), atol=1e-5)
+
+
+def test_pplcnet_compiles_as_a_single_graph():
+    torch._dynamo.reset()
+    torch.manual_seed(0)
+    model, images = PPLCNet().eval(), torch.randn(2, 3, 224, 224)
+    compiled = torch.compile(model, backend="aot_eager", fullgraph=True)
+    assert torch.allclose(compiled(images), model(images), atol=1e-5)

@@ -11,6 +11,13 @@ Pipeline
 
 .. autoclass:: DocumentTensor
 
+Page orientation
+----------------
+
+.. autoclass:: PageOrientation
+   :members: from_pretrained, probabilities, forward, upright
+.. autofunction:: rotate_page
+
 Post-processing
 ---------------
 

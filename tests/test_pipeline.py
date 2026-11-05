@@ -230,3 +230,37 @@ def test_scores_and_min_text_score_filter(ascii_charset):
     filtered = make(min_text_score=0.8)(image)
     assert len(filtered.text) == 1 and filtered.polygons.shape == (1, 4, 2)
     assert filtered.bounding_boxes.shape == (1, 4) and filtered.scores.shape == (1,)
+
+
+class _AlwaysTurned90(nn.Module):
+    """Page-orientation classifier that always answers "turned 90 degrees clockwise"."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.anchor = nn.Parameter(torch.zeros(()))
+
+    def forward(self, images):
+        return torch.tensor([0.0, 9.0, 0.0, 0.0]).expand(images.shape[0], -1)
+
+
+def test_orientation_sets_the_page_upright_before_detection(ascii_charset):
+    from torchocr import PageOrientation
+    from torchocr.transforms import ClassificationPreset
+
+    detector = _BlobDetector()
+    pipeline = OCRPipeline(
+        detector,
+        _ConstantRecognizer(len(ascii_charset)),
+        DBPostProcessor(),
+        CTCGreedyDecoder(ascii_charset),
+        detector_transforms=DetectionPreset(max_side=100),
+        recognizer_transforms=RecognitionPreset(height=32, max_width=96),
+        orientation=PageOrientation(_AlwaysTurned90(), ClassificationPreset(), min_confidence=0.7),
+    )
+    upright = torch.randint(0, 256, (3, 100, 200), dtype=torch.uint8)
+    doc = pipeline(torch.rot90(upright, -1, dims=(-2, -1)))  # scanned 90 degrees clockwise
+
+    assert doc.rotation == 90 and torch.equal(doc.pixels, upright)
+    assert detector.seen_shape == (1, 3, 64, 96)  # the landscape page, as in the test above
+    x1, y1, x2, y2 = doc.bounding_boxes[0].tolist()
+    assert (x1 + x2) / 2 == pytest.approx(100, abs=4) and (y1 + y2) / 2 == pytest.approx(50, abs=4)
