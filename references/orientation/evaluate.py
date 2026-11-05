@@ -29,7 +29,7 @@ import time
 import pyarrow.parquet as pq
 import torch
 from baselines import NO_ANSWER, DocTR, Tesseract, TorchOCR
-from torchvision.io import ImageReadMode, decode_image
+from torchocr.io.image import decode_image
 
 
 def parse_args() -> argparse.Namespace:
@@ -94,13 +94,7 @@ def pages(pattern: str, limit: int | None):
             for row in batch.to_pylist():
                 if limit is not None and count >= limit:
                     return
-                data = torch.frombuffer(
-                    bytearray(row["image"]["bytes"]), dtype=torch.uint8
-                )
-                yield (
-                    decode_image(data, ImageReadMode.RGB),
-                    row["metadata"]["doc_category"],
-                )
+                yield decode_image(row["image"]["bytes"]), row["metadata"]["doc_category"]
                 count += 1
 
 

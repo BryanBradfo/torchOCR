@@ -22,8 +22,7 @@ from pathlib import Path
 
 import lmdb
 import pyarrow.parquet as pq
-import torch
-from torchvision.io import decode_image
+from torchocr.io.image import decode_image
 
 
 def convert(
@@ -71,8 +70,8 @@ def convert(
 
 def _decodes(data: bytes) -> bool:
     try:
-        decode_image(torch.frombuffer(bytearray(data), dtype=torch.uint8))
-    except RuntimeError:
+        decode_image(bytes(data), "UNCHANGED")
+    except (OSError, ValueError):  # Pillow: unidentified or truncated image
         return False
     return True
 

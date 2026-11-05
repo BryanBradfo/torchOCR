@@ -8,9 +8,9 @@ from typing import Literal
 import torch
 from torch import Tensor
 from torch.utils.data import Dataset
-from torchvision.io import ImageReadMode, read_image
 
 from ..core.structures import TextDetectionTarget
+from ..io.image import decode_image
 
 
 _SPLITS = {
@@ -85,7 +85,7 @@ class ICDAR2015(Dataset[tuple[Tensor, TextDetectionTarget]]):
         return _parse_ground_truth(self.gt_dir / f"gt_{self.image_paths[index].stem}.txt")
 
     def __getitem__(self, index: int) -> tuple[Tensor, TextDetectionTarget]:
-        image = read_image(str(self.image_paths[index]), mode=ImageReadMode.RGB)
+        image = decode_image(self.image_paths[index])
         target = self.load_target(index)
         if self.transforms is not None:
             image, target = self.transforms(image, target)

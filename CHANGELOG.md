@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   benchmarks page.
 
 ### Changed
+- Images are decoded with Pillow instead of `torchvision.io`, whose decoders torchvision 0.29
+  deprecated. Decoded pixels are the same (end-to-end Total-Text unchanged at 0.585). `load_image`
+  now also reads TIFF scans and encoded bytes, takes `mode` as a string (`"RGB"`, `"GRAY"`,
+  `"UNCHANGED"`, ...; `ImageReadMode` still works), and **applies the EXIF orientation** of phone
+  photos by default (`apply_exif_orientation=False` restores the previous behaviour). Datasets keep
+  the stored pixels, which their annotations refer to.
 - README: results on public test sets up front, when to use torchOCR rather than PaddleOCR or
   EasyOCR, real status badges, and the license of each family of pretrained weights.
 

@@ -9,9 +9,9 @@ from typing import Literal
 import torch
 from torch import Tensor
 from torch.utils.data import Dataset
-from torchvision.io import ImageReadMode, read_image
 
 from ..core.structures import TextDetectionTarget
+from ..io.image import decode_image
 
 
 _SPLITS = {"train": "training_data", "test": "testing_data"}
@@ -79,7 +79,7 @@ class FUNSD(Dataset[tuple[Tensor, TextDetectionTarget]]):
         return TextDetectionTarget(quads, texts, torch.tensor([not t.strip() for t in texts]))
 
     def __getitem__(self, index: int) -> tuple[Tensor, TextDetectionTarget]:
-        image = read_image(str(self.image_paths[index]), mode=ImageReadMode.RGB)
+        image = decode_image(self.image_paths[index])
         target = self.load_target(index)
         if self.transforms is not None:
             image, target = self.transforms(image, target)

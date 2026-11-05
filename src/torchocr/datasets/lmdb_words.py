@@ -3,10 +3,10 @@
 from collections.abc import Callable
 from pathlib import Path
 
-import torch
 from torch import Tensor
 from torch.utils.data import Dataset
-from torchvision.io import ImageReadMode, decode_image
+
+from ..io.image import decode_image
 
 
 class LMDBWords(Dataset[tuple[Tensor, str]]):
@@ -67,7 +67,7 @@ class LMDBWords(Dataset[tuple[Tensor, str]]):
     def __getitem__(self, index: int) -> tuple[Tensor, str]:
         with self._open().begin() as txn:
             data = txn.get(f"image-{self.indices[index]:09d}".encode())
-        image = decode_image(torch.frombuffer(bytearray(data), dtype=torch.uint8), mode=ImageReadMode.RGB)
+        image = decode_image(bytes(data))
         if self.transform is not None:
             image = self.transform(image)
         return image, self.labels[index]
