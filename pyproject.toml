@@ -21,7 +21,7 @@ dependencies = [
 ]
 
 [project.urls]
-Documentation = "https://bryanbradfo.me/torchOCR/"
+Documentation = "https://bryanbradfo.github.io/torchOCR/"
 Source = "https://github.com/BryanBradfo/torchOCR"
 Changelog = "https://github.com/BryanBradfo/torchOCR/blob/main/CHANGELOG.md"
 Weights = "https://huggingface.co/BryanBradfo/torchocr-weights"

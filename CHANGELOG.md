@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-05
+
+First release on PyPI (`pip install torchocr`). No library change since 0.4.0.
+
 ### Removed
 - Random-initialization demos and smoke scripts from before the weights API (`scripts/infer.py`,
   `scripts/test_inference.py`, `scripts/test_full_ocr.py`, `scripts/test_converted_dbnet.py`,
@@ -14,16 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   suite and the documentation gallery replace them. The PaddleOCR converters stay in `scripts/`.
 
 ### Changed
-- Documentation deployed to https://bryanbradfo.me/torchOCR/ by `.github/workflows/docs.yml` on every
+- Documentation deployed to https://bryanbradfo.github.io/torchOCR/ by `.github/workflows/docs.yml` on every
   merge into `main`; project URLs added to the package metadata.
 - README and CONTRIBUTING: the building-blocks example uses pretrained weights end to end; the
   architecture table, test and documentation commands and branch naming are up to date.
-
-## [0.4.1] - 2026-10-26
-
-First release on PyPI (`pip install torchocr`). No library change since 0.4.0.
-
-### Changed
 - License declared as BSD-3-Clause (torchvision's license) in the README and the package metadata;
   `LICENSE` copyright holder is Bryan Chen.
 - Tags `v*` publish the sdist and wheel to PyPI from GitHub Actions (`.github/workflows/release.yml`,
