@@ -23,8 +23,8 @@ def load_image(
 
     Args:
         source: Path, encoded bytes, or a 1-D ``uint8`` tensor of encoded bytes.
-            JPEG, PNG, TIFF, WebP, BMP, GIF (first frame) and the other formats
-            Pillow reads.
+            JPEG, PNG, TIFF, WebP, BMP or GIF (first frame); other formats are
+            refused.
         mode: ``"RGB"``, ``"GRAY"``, ``"RGB_ALPHA"``, ``"GRAY_ALPHA"`` or
             ``"UNCHANGED"``. A ``torchvision.io.ImageReadMode`` member also works.
         apply_exif_orientation: Apply the EXIF orientation tag. Turn it off

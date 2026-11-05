@@ -14,6 +14,10 @@ from PIL import Image, ImageOps
 from torch import Tensor
 
 # torchocr mode -> Pillow mode; same names as torchvision.io.ImageReadMode.
+# Formats Pillow may open. Pillow otherwise detects formats on its own, including EPS, which it
+# hands to Ghostscript: an image from an untrusted source must never reach that.
+FORMATS = ("JPEG", "PNG", "TIFF", "WEBP", "BMP", "GIF")  # JPEG also opens multi-picture (MPO) photos
+
 _MODES = {"RGB": "RGB", "GRAY": "L", "RGB_ALPHA": "RGBA", "GRAY_ALPHA": "LA", "UNCHANGED": None}
 
 
@@ -37,7 +41,8 @@ def decode_image(
     """Decode an image file, or its encoded bytes, to a ``(C, H, W)`` ``uint8`` tensor.
 
     Args:
-        source: Path, encoded bytes, or a 1-D ``uint8`` tensor of encoded bytes.
+        source: Path, encoded bytes, or a 1-D ``uint8`` tensor of encoded bytes, in one of
+            :data:`FORMATS`; other formats raise ``PIL.UnidentifiedImageError``.
         mode: ``"RGB"``, ``"GRAY"``, ``"RGB_ALPHA"``, ``"GRAY_ALPHA"`` or
             ``"UNCHANGED"`` (a ``torchvision.io.ImageReadMode`` member also works).
         apply_exif_orientation: Turn the image the way its EXIF tag says, as
@@ -48,7 +53,7 @@ def decode_image(
         raise ValueError(f"mode must be one of {sorted(_MODES)}; got {mode!r}.")
     if isinstance(source, Tensor):
         source = source.numpy().tobytes()
-    with Image.open(io.BytesIO(source) if isinstance(source, bytes) else source) as image:
+    with Image.open(io.BytesIO(source) if isinstance(source, bytes) else source, formats=FORMATS) as image:
         if apply_exif_orientation:
             image = ImageOps.exif_transpose(image)
         image = _unchanged(image)

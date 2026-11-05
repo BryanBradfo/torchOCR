@@ -99,6 +99,17 @@ def test_load_image_applies_exif_orientation_unless_asked_not_to(tmp_path):
     assert load_image(tmp_path / "phone.jpg", apply_exif_orientation=False).shape == (3, 10, 20)
 
 
+def test_load_image_refuses_formats_outside_the_allow_list(tmp_path):
+    """EPS would be handed to Ghostscript: it must be refused before any parsing."""
+    from PIL import UnidentifiedImageError
+
+    from torchocr.io import load_image
+
+    eps = b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 10 10\nshowpage\n"
+    with pytest.raises(UnidentifiedImageError):
+        load_image(eps)
+
+
 def test_load_image_rejects_unknown_modes(tmp_path):
     from torchocr.io import load_image
 
