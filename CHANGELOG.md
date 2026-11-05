@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- README: results on public test sets up front, when to use torchOCR rather than PaddleOCR or
+  EasyOCR, real status badges, and the license of each family of pretrained weights.
+
 ## [0.4.1] - 2026-11-05
 
 First release on PyPI (`pip install torchocr`). No library change since 0.4.0.
