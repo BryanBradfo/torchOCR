@@ -111,7 +111,9 @@ doc.rotation    # how far the page was turned; doc.pixels and the regions are up
 A 1.7 M-parameter classifier converted from PaddleOCR (~3 ms per page on a laptop GPU). On the 4999
 DocLayNet test pages, each fed in all four orientations, it is right 98.5% of the time; it only turns a
 page when it is at least 70% sure, which leaves 0.24% of upright pages wrongly turned and sets 97.5% of
-turned pages upright. It is meant for document pages, not street photos.
+turned pages upright. Under the same protocol and as cautious with upright pages, docTR sets 31% of
+turned pages upright and Tesseract OSD 45% ([comparison](https://bryanbradfo.github.io/torchOCR/benchmarks.html)).
+It is meant for document pages, not street photos.
 
 ### Building blocks
 

@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   validation, 0.24% of upright pages are turned and 97.5% of turned pages are set upright.
 - `torchocr.transforms.ClassificationPreset` (resize the shorter side, center-crop, normalize) and
   `references/orientation/evaluate.py`.
+- `references/orientation/evaluate.py --engine doctr|tesseract` compares page orientation with docTR and
+  Tesseract OSD under the same protocol (thresholds chosen on DocLayNet validation); results in the
+  benchmarks page.
 
 ### Changed
 - README: results on public test sets up front, when to use torchOCR rather than PaddleOCR or
