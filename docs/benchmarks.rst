@@ -36,6 +36,45 @@ same model trained further with MJSynth synthetic words mixed in.
 Per-model detection and recognition results are listed with each weights entry in
 :doc:`models`.
 
+Page orientation against other tools
+------------------------------------
+
+Each of the 4999 DocLayNet test pages is fed upright and turned 90, 180 and 270 degrees. Every tool
+gets a threshold chosen on DocLayNet *validation*: the lowest one at which it turns at most 0.25% of
+upright pages. Each tool then runs once on test with that threshold. "Without a threshold" is the
+tool's raw answer. Reproduce with ``references/orientation/evaluate.py --engine {torchocr,doctr,tesseract}``.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Tool
+     - Right angle (no threshold)
+     - Upright pages wrongly turned / turned pages set upright, no threshold
+     - Same, at the validation threshold
+     - CPU, one core, per page
+   * - torchocr ``PPLCNet_x1_0_Weights.PPOCR_DOC_ORIENTATION``
+     - **98.5%**
+     - 1.5% / 98.5%
+     - 0.40% / **97.8%**
+     - **14 ms**
+   * - docTR 1.1 ``mobilenet_v3_small_page_orientation``
+     - 90.8%
+     - 10.0% / 91.1%
+     - 0.68% / 31.2%
+     - 32 ms
+   * - Tesseract 5.3.4 OSD (``ocrmypdf --rotate-pages``), pages upscaled 2x
+     - 90.0%
+     - 7.4% / 89.1%
+     - 0.18% / 45.3%
+     - 890 ms
+
+To stay as cautious with upright pages as torchocr, docTR and Tesseract must be so sure of
+themselves that they leave most turned pages as they are. Tesseract needs ~300 dpi text, and DocLayNet pages
+are ~100 dpi: on a 12-page validation sample it was right for 10 of 48 images at native size and 41
+of 48 upscaled 2x, so it gets 2x. It also gives no answer for 2.6% of pages (too little text), which are kept as they
+are. torchocr's published threshold (0.7, a little stricter than the 0.62 picked by this rule) gives
+0.24% / 97.5%.
+
 What the models are good at
 ---------------------------
 
