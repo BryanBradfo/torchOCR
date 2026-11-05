@@ -13,7 +13,7 @@ requires-python = ">=3.10"
 dependencies = [
     "torch",
     "torchvision>=0.23",  # tv_tensors.KeyPoints (torchocr.transforms.v2)
-    "pymupdf",
+    "pymupdf>=1.24.3",
     "scipy",
     "opencv-python-headless",
     "pyclipper",
